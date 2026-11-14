@@ -27,9 +27,18 @@ CREATE TABLE IF NOT EXISTS runs (
     deep_reviewed_hunks INTEGER DEFAULT 0,
     cost_usd REAL NOT NULL,
     naive_cost_usd REAL DEFAULT 0,
-    models_json TEXT NOT NULL       -- [{model, calls, in, out, cache_read, usd}]
+    models_json TEXT NOT NULL,      -- [{model, calls, in, out, cache_read, usd}]
+    max_risk INTEGER DEFAULT 0,
+    findings_json TEXT DEFAULT '[]' -- [{severity, title, file}]
 );
 """
+
+# Columns added after the first release; applied idempotently on open so
+# existing DBs upgrade in place.
+_MIGRATIONS = (
+    "ALTER TABLE runs ADD COLUMN max_risk INTEGER DEFAULT 0",
+    "ALTER TABLE runs ADD COLUMN findings_json TEXT DEFAULT '[]'",
+)
 
 
 @dataclass
@@ -44,6 +53,8 @@ class RunRow:
     cost_usd: float
     naive_cost_usd: float
     models: list[dict]
+    max_risk: int = 0
+    findings: list[dict] | None = None
 
 
 def costs_db_path(memory_home: str) -> Path:
@@ -56,12 +67,27 @@ class CostHistory:
     def __init__(self, db_path: Path) -> None:
         self._conn = sqlite3.connect(db_path)
         self._conn.executescript(_SCHEMA)
+        for migration in _MIGRATIONS:
+            try:
+                self._conn.execute(migration)
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
 
     def record_report(self, report: ReviewReport) -> None:
+        risks = [v.risk for v in report.verdicts] + [r.risk_score for r in report.reviews]
+        findings = [
+            {"severity": f.severity, "title": f.title, "file": r.file_path}
+            for r in report.reviews
+            for f in r.findings
+        ]
+        findings.sort(key=lambda f: {"high": 0, "medium": 1, "low": 2}[f["severity"]])
         self._insert(
+            max_risk=max(risks, default=0),
+            findings=findings[:20],
             command="review",
             repo=f"{report.pr.owner}/{report.pr.repo}",
             pr_number=report.pr.number or None,
@@ -90,15 +116,17 @@ class CostHistory:
         )
 
     def _insert(
-        self, *, command, repo, pr_number, total_hunks, skipped_hunks, deep, cost, naive, models
+        self, *, command, repo, pr_number, total_hunks, skipped_hunks, deep, cost, naive,
+        models, max_risk=0, findings=None,
     ) -> None:
         self._conn.execute(
             "INSERT INTO runs (ts, command, repo, pr_number, total_hunks, skipped_hunks,"
-            " deep_reviewed_hunks, cost_usd, naive_cost_usd, models_json)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            " deep_reviewed_hunks, cost_usd, naive_cost_usd, models_json, max_risk,"
+            " findings_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 time.time(), command, repo, pr_number, total_hunks, skipped_hunks,
-                deep, cost, naive, json.dumps(models),
+                deep, cost, naive, json.dumps(models), max_risk,
+                json.dumps(findings or []),
             ),
         )
         self._conn.commit()
@@ -106,15 +134,16 @@ class CostHistory:
     def rows(self, limit: int = 200) -> list[RunRow]:
         cur = self._conn.execute(
             "SELECT ts, command, repo, pr_number, total_hunks, skipped_hunks,"
-            " deep_reviewed_hunks, cost_usd, naive_cost_usd, models_json"
-            " FROM runs ORDER BY ts DESC LIMIT ?",
+            " deep_reviewed_hunks, cost_usd, naive_cost_usd, models_json, max_risk,"
+            " findings_json FROM runs ORDER BY ts DESC LIMIT ?",
             (limit,),
         )
         return [
             RunRow(
                 ts=r[0], command=r[1], repo=r[2], pr_number=r[3], total_hunks=r[4],
                 skipped_hunks=r[5], deep_reviewed_hunks=r[6], cost_usd=r[7],
-                naive_cost_usd=r[8], models=json.loads(r[9]),
+                naive_cost_usd=r[8], models=json.loads(r[9]), max_risk=r[10] or 0,
+                findings=json.loads(r[11] or "[]"),
             )
             for r in cur.fetchall()
         ]

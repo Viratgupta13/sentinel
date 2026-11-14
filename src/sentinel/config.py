@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     # How many memories are retrieved per deep-reviewed hunk.
     retrieve_top_k: int = 3
 
+    # --- Phase 5: webhook server ---
+    # HMAC secret for GitHub webhook signature verification (X-Hub-Signature-256).
+    # Unset => unsigned payloads are accepted (local testing only; always set in prod).
+    webhook_secret: str | None = None
+    # Post (and keep updated) a review comment on the PR after each webhook review.
+    post_comments: bool = True
+
 
 def load_settings() -> Settings:
     return Settings()

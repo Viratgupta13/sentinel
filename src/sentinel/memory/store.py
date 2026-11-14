@@ -159,3 +159,18 @@ class MemoryStore:
             files=json.loads(row[9] or "[]"),
             confidence=row[10],
         )
+
+
+def all_repo_stats(memory_home: str) -> list[dict]:
+    """Stats for every repo memory DB under <memory_home>/memory (dashboard use)."""
+    root = Path(memory_home).expanduser() / "memory"
+    out: list[dict] = []
+    for db in sorted(root.glob("*.db")):
+        store = MemoryStore(db)
+        try:
+            stats = store.stats()
+        finally:
+            store.close()
+        stats["repo"] = db.stem.replace("__", "/")
+        out.append(stats)
+    return out

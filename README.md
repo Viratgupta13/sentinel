@@ -83,6 +83,29 @@ Pydantic validation on this path; Anthropic-only features (prompt caching,
 effort control, native JSON-schema constraint) are skipped, and unknown models
 show $0 in the cost ledger.
 
+## Webhook server (Phase 5)
+
+The vision end-to-end: a PR is opened → Sentinel reviews it automatically →
+the findings land as a comment on the PR, and on the live dashboard.
+
+```bash
+pip install -e ".[server]"
+sentinel serve --port 8000       # POST /webhook/github · GET /dashboard · GET /healthz
+```
+
+Point a GitHub webhook at `/webhook/github` (content type `application/json`,
+events: *Pull requests*) and set `SENTINEL_WEBHOOK_SECRET` to the webhook's
+secret - unsigned payloads are only accepted when no secret is configured
+(local testing). On `opened` / `synchronize` / `reopened` / `ready_for_review`
+(drafts skipped) the server reviews the PR in the background and upserts a
+single marker-tagged comment per PR (updated on each push, no comment spam;
+needs a `GITHUB_TOKEN` with write access; disable with
+`SENTINEL_POST_COMMENTS=false`).
+
+`GET /dashboard` serves the same unified dashboard as `sentinel costs --html`:
+recent reviews (risk + findings), decision-memory stats per repo, tokens by
+model, and total spend vs the naive baseline.
+
 ## Development
 
 ```bash
@@ -106,5 +129,7 @@ docker build -t sentinel . && docker run sentinel version
   datasets, resumable ablation backtests (static/triage/full/memory), recall +
   noise + cost table (see `evals/README.md`); headline numbers pending a
   strong-model run
-- [ ] **Phase 5 - GitHub App**: webhook service posting inline review comments,
-  feedback loop (👍/👎 → memory + eval set)
+- [x] **Phase 5 - webhook server**: `sentinel serve` - GitHub `pull_request`
+  webhook (HMAC-verified) triggers an automatic review and posts/updates one
+  review comment per PR; live unified dashboard at `/dashboard`
+  (inline-comment GitHub App + 👍/👎 feedback loop pending)

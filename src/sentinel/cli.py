@@ -309,11 +309,47 @@ def costs(
     console.print(table)
 
     if html_out is not None:
+        from sentinel.memory.store import all_repo_stats
         from sentinel.report.dashboard import render_dashboard
 
         html_out.parent.mkdir(parents=True, exist_ok=True)
-        html_out.write_text(render_dashboard(rows, summary), encoding="utf-8")
+        html_out.write_text(
+            render_dashboard(rows, summary, memory=all_repo_stats(settings.memory_home)),
+            encoding="utf-8",
+        )
         console.print(f"dashboard → {html_out}")
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8000, "--port", min=1, max=65535),
+) -> None:
+    """Run the webhook server: PR opened => auto-review => comment (Phase 5).
+
+    Endpoints: POST /webhook/github, GET /dashboard, GET /healthz.
+    """
+    try:
+        import uvicorn
+
+        from sentinel.server import create_app
+    except ImportError as e:
+        console.print(
+            "[red]error:[/red] server dependencies missing - "
+            "install with: pip install 'sentinel-review[server]'"
+        )
+        raise typer.Exit(1) from e
+
+    settings = load_settings()
+    if _llm_key_missing(settings):
+        console.print(f"[yellow]{_key_hint(settings)} - webhook reviews will fail.[/yellow]")
+    if not settings.webhook_secret:
+        console.print(
+            "[yellow]SENTINEL_WEBHOOK_SECRET unset - unsigned payloads accepted "
+            "(fine locally, never in prod).[/yellow]"
+        )
+    console.print(f"dashboard: http://{host}:{port}/dashboard")
+    uvicorn.run(create_app(settings), host=host, port=port, log_level="info")
 
 
 @eval_app.command("collect")

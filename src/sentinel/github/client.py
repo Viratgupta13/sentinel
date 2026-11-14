@@ -99,6 +99,36 @@ class GitHubClient:
         self._raise_for_status(resp, f"diff for {owner}/{repo}#{number}")
         return resp.text
 
+    # --- Phase 5: webhook server ---
+
+    def upsert_pr_comment(
+        self, owner: str, repo: str, number: int, body: str,
+        marker: str = "<!-- sentinel-review -->",
+    ) -> str:
+        """Post a PR comment, or update the existing Sentinel comment in place.
+
+        The invisible marker keeps one comment per PR instead of a new one per
+        push. Returns the comment's html_url. Requires a token with write access.
+        """
+        body = f"{marker}\n{body}"
+        resp = self._http.get(
+            f"/repos/{owner}/{repo}/issues/{number}/comments", params={"per_page": 100}
+        )
+        self._raise_for_status(resp, f"comments for {owner}/{repo}#{number}")
+        for comment in resp.json():
+            if marker in (comment.get("body") or ""):
+                upd = self._http.patch(
+                    f"/repos/{owner}/{repo}/issues/comments/{comment['id']}",
+                    json={"body": body},
+                )
+                self._raise_for_status(upd, "updating review comment")
+                return upd.json().get("html_url", "")
+        new = self._http.post(
+            f"/repos/{owner}/{repo}/issues/{number}/comments", json={"body": body}
+        )
+        self._raise_for_status(new, "posting review comment")
+        return new.json().get("html_url", "")
+
     # --- Phase 2: history harvesting ---
 
     def list_merged_prs(self, owner: str, repo: str, limit: int = 200) -> list[dict]:
