@@ -112,6 +112,14 @@ class HubStore:
 
     # --- queries ---
 
+    def installation_for_repo(self, repo: str) -> int | None:
+        cur = self._conn.execute(
+            "SELECT installation_id FROM installation_repos WHERE repo = ? LIMIT 1",
+            (repo,),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+
     def repos_for_user(self, github_id: int) -> set[str]:
         cur = self._conn.execute(
             "SELECT ir.repo FROM installation_repos ir"

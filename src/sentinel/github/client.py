@@ -129,6 +129,48 @@ class GitHubClient:
         self._raise_for_status(new, "posting review comment")
         return new.json().get("html_url", "")
 
+    # --- Phase 7: repo-centric hub pages ---
+
+    def list_open_prs(self, owner: str, repo: str, cap: int = 30) -> list[dict]:
+        """Open PRs, most recently updated first: light dicts for the repo page."""
+        resp = self._http.get(
+            f"/repos/{owner}/{repo}/pulls",
+            params={"state": "open", "sort": "updated", "direction": "desc",
+                    "per_page": cap},
+        )
+        self._raise_for_status(resp, f"open PRs for {owner}/{repo}")
+        return [
+            {
+                "number": pr["number"],
+                "title": pr.get("title") or "",
+                "author": (pr.get("user") or {}).get("login", ""),
+                "draft": bool(pr.get("draft")),
+                "updated_at": pr.get("updated_at") or "",
+                "html_url": pr.get("html_url") or "",
+            }
+            for pr in resp.json()
+        ]
+
+    def list_open_issues(self, owner: str, repo: str, cap: int = 30) -> list[dict]:
+        """Open issues (PRs excluded), most recently updated first."""
+        resp = self._http.get(
+            f"/repos/{owner}/{repo}/issues",
+            params={"state": "open", "sort": "updated", "direction": "desc",
+                    "per_page": cap},
+        )
+        self._raise_for_status(resp, f"open issues for {owner}/{repo}")
+        return [
+            {
+                "number": i["number"],
+                "title": i.get("title") or "",
+                "author": (i.get("user") or {}).get("login", ""),
+                "updated_at": i.get("updated_at") or "",
+                "html_url": i.get("html_url") or "",
+            }
+            for i in resp.json()
+            if "pull_request" not in i  # the issues API interleaves PRs
+        ]
+
     # --- Phase 2: history harvesting ---
 
     def list_merged_prs(self, owner: str, repo: str, limit: int = 200) -> list[dict]:

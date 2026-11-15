@@ -34,6 +34,7 @@ from sentinel.memory.store import all_repo_stats
 from sentinel.models import ReviewReport
 from sentinel.pipeline import load_pr, open_memory_if_exists, review_pr
 from sentinel.report.dashboard import render_dashboard, render_landing
+from sentinel.report.pages import render_home, render_repo_page
 from sentinel.report.render import to_markdown
 
 log = logging.getLogger("sentinel.server")
@@ -137,7 +138,83 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user = _current_user(request)
         if settings.login_enabled and not user:
             return RedirectResponse("/")
+        if not settings.login_enabled:
+            # Local single-user mode keeps the unified Phase 5 dashboard.
+            return HTMLResponse(_dashboard_data(user))
+
+        store = _store()
+        try:
+            repos = sorted(store.repos_for_user(user["uid"]))
+        finally:
+            store.close()
+        history = CostHistory(costs_db_path(settings.memory_home))
+        try:
+            rows = [r for r in history.rows() if r.command == "review"]
+        finally:
+            history.close()
+        decisions = {m["repo"]: m["decisions"] for m in all_repo_stats(settings.memory_home)}
+        cards = []
+        for repo in repos:
+            mine = [r for r in rows if r.repo == repo]
+            cards.append({
+                "repo": repo,
+                "reviews": len(mine),
+                "last_ts": mine[0].ts if mine else 0,
+                "last_risk": mine[0].max_risk if mine else 0,
+                "decisions": decisions.get(repo, 0),
+            })
+        cards.sort(key=lambda c: -c["last_ts"])
+        return HTMLResponse(render_home(cards, user))
+
+    @app.get("/overview", response_class=HTMLResponse)
+    def overview(request: Request) -> Response:
+        user = _current_user(request)
+        if settings.login_enabled and not user:
+            return RedirectResponse("/")
         return HTMLResponse(_dashboard_data(user))
+
+    @app.get("/repo/{owner}/{name}", response_class=HTMLResponse)
+    def repo_page(owner: str, name: str, request: Request) -> Response:
+        user = _current_user(request)
+        if settings.login_enabled and not user:
+            return RedirectResponse("/")
+        repo = f"{owner}/{name}"
+
+        token = settings.github_token
+        if settings.login_enabled:
+            store = _store()
+            try:
+                if repo not in store.repos_for_user(user["uid"]):
+                    return JSONResponse({"error": "unknown repo"}, status_code=404)
+                installation_id = store.installation_for_repo(repo)
+            finally:
+                store.close()
+            if inst_tokens and installation_id:
+                try:
+                    token = inst_tokens.token(installation_id)
+                except Exception:
+                    log.exception("installation token mint failed for %s", repo)
+
+        prs: list[dict] | None = None
+        issues: list[dict] | None = None
+        fetch_error = None
+        try:
+            gh = GitHubClient(token)
+            prs = gh.list_open_prs(owner, name)
+            issues = gh.list_open_issues(owner, name)
+        except Exception as e:
+            fetch_error = str(e)[:200]
+            log.warning("live fetch failed for %s: %s", repo, e)
+
+        history = CostHistory(costs_db_path(settings.memory_home))
+        try:
+            reviews = [r for r in history.rows() if r.command == "review" and r.repo == repo]
+        finally:
+            history.close()
+        mem = next((m for m in all_repo_stats(settings.memory_home) if m["repo"] == repo), None)
+        return HTMLResponse(
+            render_repo_page(repo, prs, issues, reviews, mem, user, fetch_error)
+        )
 
     @app.get("/api/latest")
     def api_latest(request: Request) -> Response:

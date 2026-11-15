@@ -150,3 +150,7 @@ docker build -t sentinel . && docker run sentinel version
   on any repo, reviews run on per-installation tokens, per-user live
   dashboard; one-click Render deploy (`render.yaml`, `docs/HOSTING.md`)
   (inline per-line comments + 👍/👎 feedback loop pending)
+- [x] **Phase 7a - repo-centric UI**: home is your repo grid; each repo page
+  shows live open PRs (risk-badged once reviewed), open issues, review
+  history and decision-memory stats; costs move to `/overview`
+  (7b "ask the repo" RAG chat pending)
