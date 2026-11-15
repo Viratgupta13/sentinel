@@ -118,6 +118,44 @@ def test_local_mode_keeps_unified_dashboard(tmp_path):
     assert "Sentinel dashboard" in resp.text  # old unified page, no login
 
 
+def test_empty_store_resyncs_from_github(tmp_path, monkeypatch):
+    """Ephemeral-disk recovery: store wiped => installations refetched via app JWT."""
+    settings = Settings(
+        memory_home=str(tmp_path), post_comments=False,
+        github_client_id="cid", github_client_secret="csec", session_secret=SECRET,
+        github_app_id="77", github_app_private_key="pem",
+        _env_file=None,
+    )
+    monkeypatch.setattr(server_mod, "load_private_key", lambda s: "pem")
+
+    class FakeTokens:
+        def __init__(self, app_id, key):
+            pass
+
+        def list_installations(self):
+            return [{"installation_id": 10, "account_login": "virat"}]
+
+        def token(self, iid):
+            return f"t-{iid}"
+
+    monkeypatch.setattr(server_mod, "InstallationTokens", FakeTokens)
+    monkeypatch.setattr(
+        server_mod.GitHubClient, "list_installation_repos",
+        lambda self, cap=100: ["virat/app"],
+    )
+
+    client = TestClient(create_app(settings), follow_redirects=False)
+    client.cookies.set(
+        SESSION_COOKIE, sessions.sign({"uid": 1, "login": "virat", "avatar": ""}, SECRET)
+    )
+    resp = client.get("/dashboard")  # store is empty -> resync kicks in
+    assert "virat/app" in resp.text
+
+    store = HubStore(hub_db_path(str(tmp_path)))
+    assert store.repos_for_user(1) == {"virat/app"}
+    store.close()
+
+
 def test_home_sorted_by_recent_activity(env, tmp_path):
     time.sleep(0.01)  # ensure a strictly newer timestamp
     history = CostHistory(costs_db_path(str(tmp_path)))

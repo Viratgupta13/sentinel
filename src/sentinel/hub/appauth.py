@@ -63,3 +63,28 @@ class InstallationTokens:
         expires -= time.timezone  # strptime read it as local; shift back to UTC
         self._cache[installation_id] = (data["token"], expires)
         return data["token"]
+
+    def list_installations(self) -> list[dict]:
+        """All installations of this app (app-level JWT call).
+
+        Lets the hub rebuild its tenant store from GitHub when local state is
+        lost - e.g. a redeploy on a host with an ephemeral filesystem.
+        """
+        resp = httpx.get(
+            f"{API}/app/installations",
+            headers={
+                "Authorization": f"Bearer {app_jwt(self._app_id, self._key)}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            params={"per_page": 100},
+            timeout=20.0,
+        )
+        resp.raise_for_status()
+        return [
+            {
+                "installation_id": i["id"],
+                "account_login": (i.get("account") or {}).get("login", ""),
+            }
+            for i in resp.json()
+        ]

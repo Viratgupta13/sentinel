@@ -171,6 +171,12 @@ class GitHubClient:
             if "pull_request" not in i  # the issues API interleaves PRs
         ]
 
+    def list_installation_repos(self, cap: int = 100) -> list[str]:
+        """Repos this installation token can see (token must be an installation token)."""
+        resp = self._http.get("/installation/repositories", params={"per_page": cap})
+        self._raise_for_status(resp, "installation repositories")
+        return [r["full_name"] for r in resp.json().get("repositories", [])]
+
     # --- Phase 2: history harvesting ---
 
     def list_merged_prs(self, owner: str, repo: str, limit: int = 200) -> list[dict]:

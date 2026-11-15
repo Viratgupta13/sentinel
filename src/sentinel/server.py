@@ -101,6 +101,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return None
         return sessions.verify(request.cookies.get(SESSION_COOKIE), settings.session_secret)
 
+    def _user_repos(user: dict) -> set[str]:
+        """The user's installed repos - resynced from GitHub if the local
+        tenant store is empty (ephemeral disks lose it on redeploy)."""
+        store = _store()
+        try:
+            repos = store.repos_for_user(user["uid"])
+            if repos or not inst_tokens:
+                return repos
+            try:
+                for inst in inst_tokens.list_installations():
+                    iid = inst["installation_id"]
+                    store.record_installation(iid, inst["account_login"])
+                    store.set_repos(
+                        iid, GitHubClient(inst_tokens.token(iid)).list_installation_repos()
+                    )
+                    if inst["account_login"].lower() == user.get("login", "").lower():
+                        store.link_user(user["uid"], [iid])
+            except Exception:
+                log.exception("installation resync failed")
+            return store.repos_for_user(user["uid"])
+        finally:
+            store.close()
+
     def _dashboard_data(user: dict | None) -> str:
         history = CostHistory(costs_db_path(settings.memory_home))
         try:
@@ -142,11 +165,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Local single-user mode keeps the unified Phase 5 dashboard.
             return HTMLResponse(_dashboard_data(user))
 
-        store = _store()
-        try:
-            repos = sorted(store.repos_for_user(user["uid"]))
-        finally:
-            store.close()
+        repos = sorted(_user_repos(user))
         history = CostHistory(costs_db_path(settings.memory_home))
         try:
             rows = [r for r in history.rows() if r.command == "review"]
@@ -182,10 +201,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         token = settings.github_token
         if settings.login_enabled:
+            if repo not in _user_repos(user):
+                return JSONResponse({"error": "unknown repo"}, status_code=404)
             store = _store()
             try:
-                if repo not in store.repos_for_user(user["uid"]):
-                    return JSONResponse({"error": "unknown repo"}, status_code=404)
                 installation_id = store.installation_for_repo(repo)
             finally:
                 store.close()
