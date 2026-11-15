@@ -48,7 +48,7 @@ def test_dashboard_renders(tmp_path):
     assert "<!doctype html>" in html
     assert "acme/app#7" in html
     assert "m-big" in html
-    assert "saved vs naive" in html
+    assert "Saved vs naive" in html
 
 
 def test_findings_recorded_and_rendered(tmp_path):
