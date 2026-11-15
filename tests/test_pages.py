@@ -85,7 +85,7 @@ def test_repo_page_lists_prs_with_risk_badges(env, monkeypatch):
     resp = env.get("/repo/virat/app")
     assert resp.status_code == 200
     assert "Reviewed PR" in resp.text and "risk 9/10" in resp.text
-    assert "Fresh PR" in resp.text and "queued" in resp.text
+    assert "Fresh PR" in resp.text and "no review yet" in resp.text
     assert "Bug report" in resp.text
     assert "boom" in resp.text  # review history card
 

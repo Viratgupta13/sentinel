@@ -141,7 +141,7 @@ def render_repo_page(
         elif pr["draft"]:
             badge = '<span class="pill">draft</span>'
         else:
-            badge = '<span class="pill">queued</span>'
+            badge = '<span class="pill">no review yet</span>'
         return (
             f'<div class="list-row">{badge}'
             f'<a class="t" href="{html.escape(pr["html_url"])}">#{pr["number"]} '
@@ -164,11 +164,15 @@ def render_repo_page(
         f'<span class="meta">{html.escape(i["author"])} · {_when(i["updated_at"])}</span></div>'
         for i in (issues or [])
     )
-    issues_block = (
-        f'<div class="card list">{issue_rows}</div>'
-        if issue_rows
-        else '<div class="card empty">No open issues.</div>'
-    )
+    if issue_rows:
+        issues_block = f'<div class="card list">{issue_rows}</div>'
+    elif issues is None:
+        issues_block = (
+            '<div class="card empty">Issues not visible - grant the GitHub App '
+            '"Issues: Read-only" permission to list them here.</div>'
+        )
+    else:
+        issues_block = '<div class="card empty">No open issues.</div>'
 
     review_cards = "".join(_review_card(r) for r in reviews[:8]) or (
         '<div class="card empty">No reviews yet - open a pull request and '

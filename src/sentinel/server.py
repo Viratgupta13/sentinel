@@ -217,13 +217,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         prs: list[dict] | None = None
         issues: list[dict] | None = None
         fetch_error = None
+        gh = GitHubClient(token)
         try:
-            gh = GitHubClient(token)
             prs = gh.list_open_prs(owner, name)
-            issues = gh.list_open_issues(owner, name)
         except Exception as e:
             fetch_error = str(e)[:200]
-            log.warning("live fetch failed for %s: %s", repo, e)
+            log.warning("live PR fetch failed for %s: %s", repo, e)
+        try:
+            issues = gh.list_open_issues(owner, name)
+        except Exception as e:
+            # Most common cause: the GitHub App was not granted Issues read.
+            if "not accessible" in str(e).lower():
+                issues = None
+            else:
+                fetch_error = fetch_error or str(e)[:200]
+            log.warning("live issue fetch failed for %s: %s", repo, e)
 
         history = CostHistory(costs_db_path(settings.memory_home))
         try:
