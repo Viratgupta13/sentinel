@@ -62,6 +62,25 @@ class Settings(BaseSettings):
     # Post (and keep updated) a review comment on the PR after each webhook review.
     post_comments: bool = True
 
+    # --- Phase 6: hosted hub (GitHub App + "Sign in with GitHub") ---
+    # Public URL this instance is served at (OAuth callback = <base_url>/auth/callback).
+    base_url: str = "http://localhost:8787"
+    # GitHub App credentials: reviews run with short-lived installation tokens,
+    # so installed private repos work without any user PAT.
+    github_app_id: str | None = None
+    github_app_private_key: str | None = None  # PEM text ("\n" escapes accepted)
+    github_app_private_key_path: str | None = None
+    # OAuth ("Sign in with GitHub") - the GitHub App's own client id/secret.
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
+    # Signs login session cookies; any long random string. Login is enabled
+    # only when client id + secret + this are all set.
+    session_secret: str | None = None
+
+    @property
+    def login_enabled(self) -> bool:
+        return bool(self.github_client_id and self.github_client_secret and self.session_secret)
+
 
 def load_settings() -> Settings:
     return Settings()

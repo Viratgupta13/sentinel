@@ -38,8 +38,15 @@ _CSS = """
 body { background:var(--plane); color:var(--ink);
        font:15px/1.5 -apple-system,'Segoe UI',system-ui,sans-serif;
        margin:0; padding:32px 16px 48px; max-width:960px; margin-inline:auto; }
-header { margin-bottom:24px; }
+header { margin-bottom:24px; display:flex; align-items:center; gap:12px; }
+header .lead { flex:1; }
 h1 { font-size:21px; font-weight:650; margin:0; letter-spacing:-0.01em; }
+.userchip { display:flex; align-items:center; gap:8px; font-size:13px;
+            color:var(--ink-2); }
+.userchip img { width:26px; height:26px; border-radius:50%;
+                border:1px solid var(--border); }
+.userchip a { color:var(--ink-3); text-decoration:none; }
+.userchip a:hover { color:var(--ink); }
 .sub { color:var(--ink-2); font-size:13.5px; margin-top:2px; }
 h2 { font-size:13px; font-weight:600; color:var(--ink-2); margin:32px 0 10px;
      text-transform:uppercase; letter-spacing:0.06em; }
@@ -162,8 +169,62 @@ def _memory_section(memory: list[dict]) -> str:
 <th>by kind</th></tr>{rows}</table></div>"""
 
 
+def _user_chip(user: dict | None) -> str:
+    if not user:
+        return ""
+    avatar = (
+        f'<img src="{html.escape(user.get("avatar", ""))}" alt="">'
+        if user.get("avatar")
+        else ""
+    )
+    return (
+        f'<div class="userchip">{avatar}<span>{html.escape(user.get("login", ""))}</span>'
+        f'<a href="/logout">sign out</a></div>'
+    )
+
+
+_LIVE_SCRIPT = """<script>
+(function () {
+  var latest = %f;
+  setInterval(function () {
+    fetch("/api/latest").then(function (r) { return r.json(); }).then(function (d) {
+      if (d.ts && d.ts > latest + 0.001) location.reload();
+    }).catch(function () {});
+  }, 8000);
+})();
+</script>"""
+
+
+def render_landing() -> str:
+    """Signed-out home page: one card, one button."""
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel</title><style>{_CSS}
+.hero-card {{ max-width:420px; margin:12vh auto 0; text-align:center;
+             padding:40px 32px; }}
+.hero-card p {{ color:var(--ink-2); font-size:14.5px; }}
+.signin {{ display:inline-block; margin-top:16px; background:var(--ink);
+          color:var(--plane); border-radius:8px; padding:10px 20px;
+          font-weight:600; font-size:14.5px; text-decoration:none; }}
+</style></head>
+<body>
+<div class="card hero-card">
+  <h1>Sentinel</h1>
+  <p>Context-aware PR risk review. Install the GitHub App on your repos and
+     every pull request gets an automatic risk-scored review - findings on the
+     PR, history on your dashboard.</p>
+  <a class="signin" href="/login">Sign in with GitHub</a>
+</div>
+</body></html>"""
+
+
 def render_dashboard(
-    rows: list[RunRow], summary: dict, memory: list[dict] | None = None
+    rows: list[RunRow],
+    summary: dict,
+    memory: list[dict] | None = None,
+    user: dict | None = None,
+    live: bool = False,
 ) -> str:
     saved = summary["naive_usd"] - summary["total_usd"]
     pct = (saved / summary["naive_usd"] * 100) if summary["naive_usd"] > 0 else 0.0
@@ -217,8 +278,11 @@ def render_dashboard(
 <title>Sentinel dashboard</title><style>{_CSS}</style></head>
 <body>
 <header>
-  <h1>Sentinel dashboard</h1>
-  <div class="sub">Tiered PR reviews · decision memory · cost ledger — {generated}</div>
+  <div class="lead">
+    <h1>Sentinel dashboard</h1>
+    <div class="sub">Tiered PR reviews · decision memory · cost ledger — {generated}</div>
+  </div>
+  {_user_chip(user)}
 </header>
 {tiles}
 <h2>Recent reviews</h2>
@@ -233,4 +297,5 @@ def render_dashboard(
 {run_rows or '<tr><td colspan="7" class="muted">No runs yet.</td></tr>'}
 </table></div>
 <footer>Free-tier models price at $0; token columns carry the cost story.</footer>
+{_LIVE_SCRIPT % (rows[0].ts if rows else 0.0) if live else ""}
 </body></html>"""

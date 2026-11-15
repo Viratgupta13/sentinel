@@ -1,0 +1,37 @@
+# Render blueprint: deploy the Sentinel hub with one click ("New > Blueprint").
+# Free tier note: the instance sleeps when idle and cold-starts on the next
+# webhook; GitHub retries are not automatic, so use a paid instance (or a
+# cron ping to /healthz) if you need every single PR caught.
+services:
+  - type: web
+    name: sentinel
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: SENTINEL_PROVIDER
+        sync: false
+      - key: SENTINEL_OPENAI_API_KEY
+        sync: false
+      - key: SENTINEL_TRIAGE_MODEL
+        sync: false
+      - key: SENTINEL_REVIEW_MODEL
+        sync: false
+      - key: SENTINEL_EXTRACTION_MODEL
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SENTINEL_BASE_URL
+        sync: false
+      - key: SENTINEL_WEBHOOK_SECRET
+        generateValue: true
+      - key: SENTINEL_GITHUB_APP_ID
+        sync: false
+      - key: SENTINEL_GITHUB_APP_PRIVATE_KEY
+        sync: false
+      - key: SENTINEL_GITHUB_CLIENT_ID
+        sync: false
+      - key: SENTINEL_GITHUB_CLIENT_SECRET
+        sync: false
+      - key: SENTINEL_SESSION_SECRET
+        generateValue: true

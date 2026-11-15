@@ -106,6 +106,20 @@ needs a `GITHUB_TOKEN` with write access; disable with
 recent reviews (risk + findings), decision-memory stats per repo, tokens by
 model, and total spend vs the naive baseline.
 
+## Hosted hub (Phase 6)
+
+The same server becomes a multi-tenant product when GitHub App + OAuth env
+vars are set (see [docs/HOSTING.md](docs/HOSTING.md) for the click-by-click
+deploy guide - Render free tier works):
+
+- **Sign in with GitHub** (OAuth, zero scopes) with signed session cookies
+- users **install the Sentinel GitHub App** on any repos, public or private;
+  `installation` webhooks keep the tenant store in sync
+- every review runs with that installation's **short-lived token** - no PATs,
+  and comments post as the app
+- `/dashboard` is per-user (only repos your installations cover) and
+  **live-updates** as new PRs are reviewed
+
 ## Development
 
 ```bash
@@ -132,4 +146,7 @@ docker build -t sentinel . && docker run sentinel version
 - [x] **Phase 5 - webhook server**: `sentinel serve` - GitHub `pull_request`
   webhook (HMAC-verified) triggers an automatic review and posts/updates one
   review comment per PR; live unified dashboard at `/dashboard`
-  (inline-comment GitHub App + 👍/👎 feedback loop pending)
+- [x] **Phase 6 - hosted hub**: GitHub App + "Sign in with GitHub" - install
+  on any repo, reviews run on per-installation tokens, per-user live
+  dashboard; one-click Render deploy (`render.yaml`, `docs/HOSTING.md`)
+  (inline per-line comments + 👍/👎 feedback loop pending)

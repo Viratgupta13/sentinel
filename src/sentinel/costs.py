@@ -149,20 +149,24 @@ class CostHistory:
         ]
 
     def summary(self) -> dict:
-        rows = self.rows(limit=10_000)
-        by_model: dict[str, dict] = {}
-        for row in rows:
-            for m in row.models:
-                agg = by_model.setdefault(
-                    m["model"], {"calls": 0, "in": 0, "out": 0, "usd": 0.0}
-                )
-                agg["calls"] += m["calls"]
-                agg["in"] += m["in"]
-                agg["out"] += m["out"]
-                agg["usd"] += m["usd"]
-        return {
-            "runs": len(rows),
-            "total_usd": sum(r.cost_usd for r in rows),
-            "naive_usd": sum(r.naive_cost_usd for r in rows),
-            "by_model": by_model,
-        }
+        return summarize(self.rows(limit=10_000))
+
+
+def summarize(rows: list[RunRow]) -> dict:
+    """Aggregate any row subset - the hub uses this for per-user views."""
+    by_model: dict[str, dict] = {}
+    for row in rows:
+        for m in row.models:
+            agg = by_model.setdefault(
+                m["model"], {"calls": 0, "in": 0, "out": 0, "usd": 0.0}
+            )
+            agg["calls"] += m["calls"]
+            agg["in"] += m["in"]
+            agg["out"] += m["out"]
+            agg["usd"] += m["usd"]
+    return {
+        "runs": len(rows),
+        "total_usd": sum(r.cost_usd for r in rows),
+        "naive_usd": sum(r.naive_cost_usd for r in rows),
+        "by_model": by_model,
+    }
