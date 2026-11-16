@@ -167,3 +167,6 @@ docker build -t sentinel . && docker run sentinel version
   (`SENTINEL_DATABASE_URL`) for review history and the tenant store; one
   shared autocommit connection with reconnect-on-drop, the same store code
   on both backends, tested against SQLite and a real Postgres
+- [x] **Phase 7d - on-demand actions**: "Review now" on any open PR,
+  "Build decision memory" from the repo page (mirrored to Postgres so it
+  survives redeploys), live repo-page refresh, keep-alive ping workflow

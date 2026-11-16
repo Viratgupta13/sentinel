@@ -37,6 +37,7 @@ from sentinel.hub import oauth, sessions
 from sentinel.hub.appauth import InstallationTokens, load_private_key
 from sentinel.hub.store import HubStore
 from sentinel.llm import SentinelLLMError
+from sentinel.memory import snapshots
 from sentinel.memory.store import MemoryStore, all_repo_stats, db_path_for
 from sentinel.models import ReviewReport
 from sentinel.pipeline import load_pr, open_memory_if_exists, review_pr
@@ -51,7 +52,34 @@ REVIEW_ACTIONS = {"opened", "reopened", "synchronize", "ready_for_review"}
 SESSION_COOKIE = "sentinel_session"
 MAX_QUESTION_CHARS = 600
 INDEX_TTL_S = 6 * 3600  # re-snapshot the repo at most every 6h unless asked
+MEMORY_BUTTON_PRS = 30  # merged PRs mined per "Build memory" click (free-tier friendly)
 _index_locks: dict[str, threading.Lock] = {}
+
+# On-demand jobs started from the UI, keyed "review:<repo>#<n>" / "memory:<repo>".
+# In-process only: a restart forgets running jobs, never their results.
+_jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
+
+
+def _start_job(key: str, fn) -> bool:
+    """Run fn(job) in a daemon thread unless that job is already running."""
+    with _jobs_lock:
+        if _jobs.get(key, {}).get("state") == "running":
+            return False
+        job = {"state": "running", "msg": "starting…", "started": time.time()}
+        _jobs[key] = job
+
+    def run() -> None:
+        try:
+            fn(job)
+            if job["state"] == "running":
+                job["state"] = "done"
+        except Exception as e:
+            log.exception("job %s failed", key)
+            job.update(state="error", msg=str(e)[:200])
+
+    threading.Thread(target=run, name=key, daemon=True).start()
+    return True
 
 
 def _signature_ok(secret: str, payload: bytes, header: str | None) -> bool:
@@ -92,6 +120,40 @@ def _run_review(pr_url: str, settings: Settings) -> ReviewReport | None:
     return report
 
 
+def _build_memory_job(repo: str, settings: Settings, job: dict) -> None:
+    """Mine the repo's recent merged PRs into decision memory (idempotent per PR)."""
+    from sentinel.llm import LLMClient
+    from sentinel.memory.harvest import build_memory
+
+    llm = LLMClient(settings=settings)
+    store = MemoryStore(db_path_for(settings.memory_home, repo))
+    try:
+        result = build_memory(
+            repo, store, settings, llm, limit=MEMORY_BUTTON_PRS,
+            on_progress=lambda msg: job.update(msg=msg),
+        )
+    finally:
+        store.close()
+        try:  # partial progress is still worth keeping
+            snapshots.save(settings, repo)
+        except Exception:
+            log.exception("saving decision memory snapshot failed for %s", repo)
+
+    history = CostHistory(db_location(settings, "costs.db"))
+    try:
+        history.record_harvest(repo, result["cost_usd"], [
+            {"model": c.model, "calls": c.calls, "in": c.input_tokens,
+             "out": c.output_tokens, "cache_read": c.cache_read_tokens, "usd": c.cost_usd}
+            for c in llm.ledger.cost_lines()
+        ])
+    finally:
+        history.close()
+    job["msg"] = (
+        f"{result['new_decisions']} new decisions from "
+        f"{result['prs_processed']} PRs ({result['prs_seen']} merged PRs checked)"
+    )
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     app = FastAPI(title="sentinel", docs_url=None, redoc_url=None)
@@ -102,6 +164,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.github_app_id and private_key
         else None
     )
+
+    try:
+        snapshots.restore_all(settings)
+    except Exception:
+        log.exception("restoring decision memories failed")
 
     def _store() -> HubStore:
         return HubStore(db_location(settings, "hub.db"))
@@ -253,13 +320,85 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         history = CostHistory(db_location(settings, "costs.db"))
         try:
-            reviews = [r for r in history.rows() if r.command == "review" and r.repo == repo]
+            mine = [r for r in history.rows() if r.repo == repo]
         finally:
             history.close()
+        reviews = [r for r in mine if r.command == "review"]
         mem = next((m for m in all_repo_stats(settings.memory_home) if m["repo"] == repo), None)
         return HTMLResponse(
-            render_repo_page(repo, prs, issues, reviews, mem, user, fetch_error)
+            render_repo_page(
+                repo, prs, issues, reviews, mem, user, fetch_error,
+                latest_ts=mine[0].ts if mine else 0.0,
+            )
         )
+
+    # --- on-demand actions (repo page buttons) ---
+
+    def _job_settings(token: str | None) -> Settings:
+        return settings.model_copy(update={"github_token": token}) if token else settings
+
+    @app.post("/api/repo/{owner}/{name}/review")
+    async def review_now(owner: str, name: str, request: Request) -> Response:
+        user = _current_user(request)
+        if settings.login_enabled and not user:
+            return JSONResponse({"error": "not signed in"}, status_code=401)
+        try:
+            number = int((await request.json()).get("number", 0))
+        except (ValueError, TypeError, AttributeError):
+            number = 0
+        if number <= 0:
+            return JSONResponse({"error": "bad PR number"}, status_code=400)
+        repo = f"{owner}/{name}"
+        allowed, token = await run_in_threadpool(_repo_access, user, repo)
+        if not allowed:
+            return JSONResponse({"error": "unknown repo"}, status_code=404)
+        job_settings = _job_settings(token)
+        pr_url = f"https://github.com/{repo}/pull/{number}"
+
+        def work(job: dict) -> None:
+            job["msg"] = "reviewing…"
+            if _run_review(pr_url, job_settings) is None:
+                job.update(state="error", msg="review failed - see server logs")
+
+        started = _start_job(f"review:{repo}#{number}", work)
+        return JSONResponse({"ok": True, "started": started}, status_code=202)
+
+    @app.post("/api/repo/{owner}/{name}/memory")
+    async def build_memory_now(owner: str, name: str, request: Request) -> Response:
+        user = _current_user(request)
+        if settings.login_enabled and not user:
+            return JSONResponse({"error": "not signed in"}, status_code=401)
+        repo = f"{owner}/{name}"
+        allowed, token = await run_in_threadpool(_repo_access, user, repo)
+        if not allowed:
+            return JSONResponse({"error": "unknown repo"}, status_code=404)
+        job_settings = _job_settings(token)
+        started = _start_job(
+            f"memory:{repo}", lambda job: _build_memory_job(repo, job_settings, job)
+        )
+        return JSONResponse({"ok": True, "started": started}, status_code=202)
+
+    @app.get("/api/repo/{owner}/{name}/status")
+    def repo_status(owner: str, name: str, request: Request) -> Response:
+        user = _current_user(request)
+        if settings.login_enabled and not user:
+            return JSONResponse({"error": "not signed in"}, status_code=401)
+        repo = f"{owner}/{name}"
+        if settings.login_enabled and repo not in _user_repos(user):
+            return JSONResponse({"error": "unknown repo"}, status_code=404)
+        history = CostHistory(db_location(settings, "costs.db"))
+        try:
+            latest = next((r.ts for r in history.rows() if r.repo == repo), 0.0)
+        finally:
+            history.close()
+        prefix = f"review:{repo}#"
+        with _jobs_lock:
+            reviews = {
+                k.removeprefix(prefix): dict(v) for k, v in _jobs.items()
+                if k.startswith(prefix)
+            }
+            memory = dict(_jobs[f"memory:{repo}"]) if f"memory:{repo}" in _jobs else None
+        return JSONResponse({"latest_ts": latest, "reviews": reviews, "memory": memory})
 
     @app.post("/api/repo/{owner}/{name}/ask")
     async def ask_repo(owner: str, name: str, request: Request) -> Response:

@@ -17,7 +17,10 @@ from sentinel.models import CostLine, Finding, HunkReview, PRInfo, ReviewReport
 from sentinel.server import SESSION_COOKIE, create_app
 
 PG_URL = os.environ.get("SENTINEL_TEST_DATABASE_URL", "")
-TABLES = ("runs", "users", "installations", "user_installations", "installation_repos")
+TABLES = (
+    "runs", "users", "installations", "user_installations", "installation_repos",
+    "memory_snapshots",
+)
 
 
 def _report(repo: str, number: int, risk: int) -> ReviewReport:
@@ -143,3 +146,25 @@ def test_history_survives_redeploy(target, tmp_path):
     assert resp.status_code == 200
     assert "virat/app" in resp.text and "risk 9/10" in resp.text
     assert not (tmp_path / "disk2" / "costs.db").exists()
+
+
+def test_memory_snapshot_round_trip(target, tmp_path):
+    from sentinel.memory import snapshots
+    from sentinel.memory.store import MemoryStore, db_path_for
+
+    url = target["costs"] if db_mod.is_postgres(target["costs"]) else ""
+    s = Settings(memory_home=str(tmp_path / "disk1"), database_url=url, _env_file=None)
+    store = MemoryStore(db_path_for(s.memory_home, "virat/app"))
+    store.mark_harvested(4, 0)
+    store.close()
+    if not url:
+        assert snapshots.save(s, "virat/app") is False   # local file is the durable copy
+        assert snapshots.restore_all(s) == 0
+        return
+    assert snapshots.save(s, "virat/app") is True
+    fresh = s.model_copy(update={"memory_home": str(tmp_path / "disk2")})
+    assert snapshots.restore_all(fresh) == 1
+    assert snapshots.restore_all(fresh) == 0              # existing files are kept
+    again = MemoryStore(db_path_for(fresh.memory_home, "virat/app"))
+    assert again.is_harvested(4)
+    again.close()

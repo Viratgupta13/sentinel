@@ -184,7 +184,9 @@ def memory_build(
 
     from sentinel.costs import CostHistory
     from sentinel.db import location as db_location
+    from sentinel.memory import snapshots
 
+    snapshots.save(settings, repo)
     history = CostHistory(db_location(settings, "costs.db"))
     try:
         history.record_harvest(

@@ -72,7 +72,91 @@ h1 a { color:inherit; text-decoration:none; }
 .qa .src a:hover { text-decoration:underline; }
 .qa .err { color:var(--crit); font-size:13.5px; margin-top:6px; }
 .thinking { color:var(--ink-3); font-size:13.5px; margin-top:6px; }
+
+/* --- on-demand actions --- */
+button.mini { font:inherit; font-size:12px; font-weight:600; flex:none;
+              border:1px solid var(--border); background:var(--plane);
+              color:var(--ink-2); border-radius:6px; padding:3px 10px;
+              cursor:pointer; }
+button.mini:hover { color:var(--ink); border-color:var(--ink-3); }
+button.mini:disabled { opacity:.6; cursor:default; }
+.mem { padding:14px 16px; font-size:13.5px; line-height:1.55; }
+.mem .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+            margin-top:10px; }
+.mem .status { color:var(--ink-3); font-size:12.5px; }
+.fresh { position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
+         background:var(--ink); color:var(--plane); border-radius:999px;
+         padding:8px 16px; font-size:13px; box-shadow:0 4px 18px rgba(0,0,0,.18); }
+.fresh a { color:inherit; font-weight:650; }
 """
+
+# Repo page actions + live refresh. Polls status; reloads when this repo gets a
+# newer review/memory run - unless an Ask conversation is on screen, where it
+# offers a refresh link instead of wiping the answers.
+_REPO_SCRIPT = """<script>
+(function () {
+  var root = document.getElementById("repo-actions");
+  if (!root) return;
+  var api = root.getAttribute("data-api");
+  var seen = parseFloat(root.getAttribute("data-latest")) || 0;
+  var memBtn = document.getElementById("mem-build");
+  var memStatus = document.getElementById("mem-status");
+  var memWasRunning = false;
+
+  function post(path, body) {
+    return fetch(api + path, {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(body || {})
+    }).then(function (r) { return r.json(); });
+  }
+  function fresh() {
+    var log = document.getElementById("ask-log");
+    if (!log || !log.children.length) { location.reload(); return; }
+    if (document.querySelector(".fresh")) return;
+    var b = document.createElement("div");
+    b.className = "fresh";
+    b.innerHTML = 'New results for this repo · <a href="">refresh</a>';
+    document.body.appendChild(b);
+  }
+  function poll() {
+    fetch(api + "/status").then(function (r) { return r.json(); }).then(function (d) {
+      if (d.error) return;
+      document.querySelectorAll("[data-review]").forEach(function (btn) {
+        var j = (d.reviews || {})[btn.getAttribute("data-review")];
+        if (!j) return;
+        btn.disabled = j.state === "running";
+        btn.textContent = {running: "Reviewing…", error: "Failed - retry"}[j.state] ||
+          "Reviewed ✓";
+      });
+      var m = d.memory;
+      if (m && memBtn) {
+        memBtn.disabled = m.state === "running";
+        if (memStatus) memStatus.textContent =
+          (m.state === "running" ? "Building… " : m.state === "error" ? "Failed: " : "Done: ") +
+          (m.msg || "");
+        if (memWasRunning && m.state !== "running") fresh();
+        memWasRunning = m.state === "running";
+      }
+      if (d.latest_ts > seen) { seen = d.latest_ts; fresh(); }
+    }).catch(function () {});
+  }
+  document.querySelectorAll("[data-review]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      btn.disabled = true; btn.textContent = "Reviewing…";
+      post("/review", {number: parseInt(btn.getAttribute("data-review"), 10)})
+        .then(poll).catch(function () { btn.disabled = false; btn.textContent = "Retry"; });
+    });
+  });
+  if (memBtn) memBtn.addEventListener("click", function () {
+    memBtn.disabled = true;
+    if (memStatus) memStatus.textContent = "Starting… (reads up to 30 merged PRs, a few minutes)";
+    memWasRunning = true;
+    post("/memory").then(poll).catch(function () { memBtn.disabled = false; });
+  });
+  poll();
+  setInterval(poll, 8000);
+})();
+</script>"""
 
 _ASK_SCRIPT = """<script>
 (function () {
@@ -249,6 +333,7 @@ def render_repo_page(
     mem: dict | None,
     user: dict | None,
     fetch_error: str | None = None,
+    latest_ts: float = 0.0,
 ) -> str:
     latest_review: dict[int, RunRow] = {}
     for r in reviews:
@@ -264,12 +349,14 @@ def render_repo_page(
             badge = '<span class="pill">draft</span>'
         else:
             badge = '<span class="pill">no review yet</span>'
+        label = "Re-review" if row is not None else "Review now"
         return (
             f'<div class="list-row">{badge}'
             f'<a class="t" href="{html.escape(pr["html_url"])}">#{pr["number"]} '
             f"{html.escape(pr['title'])}</a>"
             f'<span class="meta">{html.escape(pr["author"])} · '
-            f'{_when(pr["updated_at"])}</span></div>'
+            f'{_when(pr["updated_at"])}</span>'
+            f'<button class="mini" data-review="{pr["number"]}">{label}</button></div>'
         )
 
     pr_rows = "".join(_pr_row(pr) for pr in (prs or []))
@@ -306,16 +393,30 @@ def render_repo_page(
         if fetch_error
         else ""
     )
-    mem_note = ""
     if mem:
         kinds = ", ".join(f"{k} {v}" for k, v in sorted(mem["by_kind"].items()))
-        mem_note = (
-            f'<h2>Decision memory</h2><div class="card empty">'
-            f"{mem['decisions']} decisions mined from {mem['harvested_prs']} PRs"
-            f"{' · ' + html.escape(kinds) if kinds else ''}</div>"
+        mem_text = (
+            f"<b>{mem['decisions']} decisions</b> mined from {mem['harvested_prs']} "
+            f"merged PRs{' · ' + html.escape(kinds) if kinds else ''}. Reviews cite them "
+            "when a change touches the same code, and Ask uses them to explain why."
         )
+        mem_label = "Update memory"
+    else:
+        mem_text = (
+            "Not built yet. Sentinel can read this repo's merged pull requests and "
+            "remember the team's design decisions and their reasons - reviews then "
+            "flag changes that undo them, and Ask can answer <i>why</i> questions."
+        )
+        mem_label = "Build decision memory"
+    mem_note = (
+        f'<h2>Decision memory</h2><div class="card mem">{mem_text}'
+        f'<div class="row"><button class="mini" id="mem-build">{mem_label}</button>'
+        f'<span class="status" id="mem-status"></span></div></div>'
+    )
 
     body = f"""
+<div id="repo-actions" data-api="/api/repo/{html.escape(repo)}"
+     data-latest="{latest_ts}"></div>
 <div class="crumbs"><a href="/dashboard">&larr; All repositories</a> ·
   <a href="https://github.com/{html.escape(repo)}">view on GitHub</a></div>
 {error_note}
@@ -328,6 +429,6 @@ def render_repo_page(
 {issues_block}
 {mem_note}
 {_ASK_SCRIPT}
+{_REPO_SCRIPT}
 """
-    # No live auto-reload here: it would wipe an in-progress conversation.
     return _page(repo, body, user)
