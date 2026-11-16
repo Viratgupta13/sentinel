@@ -291,7 +291,7 @@ def _page(
     title: str, body: str, user: dict | None, live_ts: float | None = None, active: str = ""
 ) -> str:
     live = _LIVE_SCRIPT % live_ts if live_ts is not None else ""
-    css = f"<style>{_EXTRA_CSS}{charts.CSS}</style>"
+    css = f"<style>{_EXTRA_CSS}{charts.CSS}{charts.RADAR_CSS}</style>"
     return ui.shell(title, css + body, user, active, live)
 
 
@@ -361,6 +361,10 @@ def render_home(
     <div class="s"><a href="/overview">usage details →</a></div></div>
 </div>"""
 
+    latest: dict[tuple, RunRow] = {}
+    for r in activity or []:  # newest first
+        latest.setdefault((r.repo, r.pr_number), r)
+    radar = charts.radar(list(latest.values()), len(repo_cards)) if repo_cards else ""
     panels = (
         f'<div class="panels">{charts.activity(activity or [])}'
         f"{charts.severity(open_findings or [])}</div>"
@@ -393,7 +397,7 @@ def render_home(
 <div class="page-head"><div class="grow">
   <h1>Welcome back{", " + html.escape(first) if first else ""}</h1>
   <p class="lede">Every pull request on these repositories gets an automatic risk review.</p>
-</div></div>
+</div>{radar}</div>
 {tiles}
 {panels}
 {attn}

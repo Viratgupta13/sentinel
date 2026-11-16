@@ -30,3 +30,13 @@ def test_severity_and_funnel():
     assert "3 total" in html and "67%" in html and "33%" in html
     f = charts.funnel(14, 3, 2)
     assert "14%" in f and "Triaged: 11 hunks" in f and "Deep reviewed: 2 hunks" in f
+
+
+def test_radar_puts_riskier_prs_nearer_center():
+    now = time.time()
+    hot, calm = _row(0, 10, now), _row(0, 1, now)
+    calm.pr_number = 2
+    html = charts.radar([hot, calm], repos=3)
+    assert "3 repositories" in html and "1 high-risk PR near the center" in html
+    assert 'class="blip c-crit hot"' in html and 'class="blip c-good"' in html
+    assert "Nothing high-risk right now" in charts.radar([calm], repos=1)

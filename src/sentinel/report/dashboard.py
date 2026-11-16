@@ -101,6 +101,34 @@ _LANDING_CSS = """
 .sample .findings { padding:12px 0 0; }
 .sample .findings li { align-items:flex-start; }
 .sample .findings li .ft { white-space:normal; }
+.scan-live { margin-left:auto; }
+.diff { position:relative; overflow:hidden; border-bottom:1px solid var(--border);
+        background:var(--surface-2); padding:6px 0 8px; font-size:12.5px; }
+.dfile { font-family:var(--mono); font-size:11.5px; color:var(--ink-3); padding:2px 14px 6px; }
+.dl { display:flex; gap:10px; padding:0 14px; line-height:1.75; white-space:pre;
+      border-left:2px solid transparent; }
+.dl code { font-size:12px; overflow:hidden; text-overflow:ellipsis; }
+.dl .ln { width:18px; text-align:right; color:var(--ink-3); font-family:var(--mono);
+          font-size:11px; user-select:none; }
+.dl .sg { width:8px; color:var(--ink-3); font-family:var(--mono); }
+.dl.add { background:color-mix(in srgb, var(--good) 9%, transparent); }
+.dl.add .sg { color:var(--good); }
+.dl.del { background:color-mix(in srgb, var(--crit) 7%, transparent); color:var(--ink-3); }
+.dl.del .sg { color:var(--crit); }
+.dl.risk { border-left-color:var(--crit); animation:flag 4s ease-in-out infinite; }
+@keyframes flag { 0%, 30% { background:color-mix(in srgb, var(--good) 9%, transparent); }
+  45%, 85% { background:color-mix(in srgb, var(--crit) 16%, transparent); }
+  100% { background:color-mix(in srgb, var(--good) 9%, transparent); } }
+.beam { position:absolute; left:0; right:0; top:0; height:42px; pointer-events:none; z-index:1;
+  background:linear-gradient(180deg, transparent,
+    color-mix(in srgb, var(--good) 22%, transparent) 85%, var(--good) 100%);
+  opacity:.55; animation:beam 4s cubic-bezier(.45,0,.55,1) infinite; }
+@keyframes beam { 0% { transform:translateY(-44px); } 60%, 100% { transform:translateY(190px); } }
+.hero > div:first-child > * { animation:rise .6s cubic-bezier(.2,.7,.2,1) both; }
+.hero > div:first-child > :nth-child(2) { animation-delay:.06s; }
+.hero > div:first-child > :nth-child(3) { animation-delay:.12s; }
+.hero > div:first-child > :nth-child(4) { animation-delay:.18s; }
+.hero .sample { animation:rise .7s .15s cubic-bezier(.2,.7,.2,1) both; }
 .sample .why { margin:14px 0 0; padding:10px 12px; border-left:2px solid var(--border-strong);
                background:var(--surface-2); color:var(--ink-2); font-size:13px; }
 .sample .why b { color:var(--ink); font-weight:600; }
@@ -132,8 +160,26 @@ _LANDING_CSS = """
 
 def render_landing() -> str:
     """Signed-out home page."""
+    diff = (
+        (" ", "def charge(order, card):", ""),
+        ("-", "    return gateway.capture(order.total, card)", ""),
+        ("+", "    for attempt in range(3):", "risk"),
+        ("+", "        try:", ""),
+        ("+", "            return gateway.capture(order.total, card)", "risk"),
+        ("+", "        except Timeout:", "risk"),
+        ("+", "            time.sleep(2 ** attempt)", ""),
+    )
+    code = "".join(
+        f'<div class="dl {"add" if sign == "+" else "del" if sign == "-" else ""} {flag}">'
+        f'<span class="ln">{i + 41}</span><span class="sg">{sign}</span>'
+        f"<code>{html.escape(text)}</code></div>"
+        for i, (sign, text, flag) in enumerate(diff)
+    )
     sample = f"""<div class="card sample" aria-label="Example Sentinel review">
-  <div class="sample-top"><b>acme/payments</b> #482 · Retry failed charges automatically</div>
+  <div class="sample-top"><b>acme/payments</b> #482 · Retry failed charges automatically
+    <span class="live scan-live"><i></i>SCANNING</span></div>
+  <div class="diff"><div class="beam"></div>
+    <div class="dfile">billing/charge.py</div>{code}</div>
   <div class="sample-body">
     <div class="line">{ui.risk_badge(9)}<span class="muted">2 of 14 hunks needed a deep
       review</span></div>

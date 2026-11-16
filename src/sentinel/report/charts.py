@@ -7,6 +7,7 @@ TIP_SCRIPT shows on hover/tap.
 
 from __future__ import annotations
 
+import math
 import time
 
 from sentinel.costs import RunRow
@@ -32,6 +33,12 @@ svg.chart .grid { stroke:var(--border); stroke-width:1; }
 svg.chart .base { stroke:var(--border-strong); stroke-width:1; }
 svg.chart .hit { fill:transparent; cursor:default; }
 svg.chart .col:hover .hit { fill:var(--hover); }
+svg.chart .col rect:not(.hit) { transform-box:fill-box; transform-origin:bottom;
+  animation:grow .6s cubic-bezier(.2,.7,.2,1) both; animation-delay:calc(var(--i) * 30ms + .15s); }
+.funnel .fill { transform-origin:left; animation:growx .8s cubic-bezier(.2,.7,.2,1) both; }
+.funnel .track:nth-of-type(2) .fill { animation-delay:.1s; }
+@keyframes growx { from { transform:scaleX(0); } to { transform:none; } }
+.sevbar span { transform-origin:left; animation:growx .7s cubic-bezier(.2,.7,.2,1) both; }
 .chart-note { color:var(--ink-3); font-size:12.5px; margin-top:8px; }
 .sevbar { display:flex; gap:2px; height:12px; border-radius:3px; overflow:hidden;
           background:var(--tick); }
@@ -144,7 +151,7 @@ def activity(rows: list[RunRow], days: int = 14, now: float | None = None) -> st
             )
             level += n
         parts.append(
-            f'<g class="col" data-tip="{esc(tip)}"><rect class="hit" x="{x0:.1f}" '
+            f'<g class="col" style="--i:{i}" data-tip="{esc(tip)}"><rect class="hit" x="{x0:.1f}" '
             f'y="{top_pad}" width="{slot:.1f}" height="{plot_h}" rx="3"/>{"".join(segs)}</g>'
         )
         if i % 3 == (days - 1) % 3:
@@ -213,4 +220,60 @@ def funnel(total: int, skipped: int, deep: int, title: str = "Where the hunks we
   <div class="panel-head"><h2>{esc(title)}</h2>
     <span class="count">{pct} reached the strong model</span></div>
   <div class="funnel">{rows}</div>
+</div>"""
+
+
+RADAR_CSS = """
+.radar-card { display:flex; align-items:center; gap:18px; padding:14px 18px 14px 14px; }
+.radar { position:relative; width:132px; height:132px; flex:none; border-radius:50%;
+         background:radial-gradient(circle, transparent 0 21%, var(--border) 21% calc(21% + 1px),
+           transparent calc(21% + 1px) 43%, var(--border) 43% calc(43% + 1px),
+           transparent calc(43% + 1px) 65%, var(--border) 65% calc(65% + 1px),
+           transparent calc(65% + 1px) 99%, var(--border-strong) 99%); overflow:hidden; }
+.radar::before, .radar::after { content:""; position:absolute; background:var(--border); }
+.radar::before { left:50%; top:0; bottom:0; width:1px; }
+.radar::after { top:50%; left:0; right:0; height:1px; }
+.radar .sweep { position:absolute; inset:0; border-radius:50%; z-index:1;
+  background:conic-gradient(from 0deg, transparent 0 290deg,
+    color-mix(in srgb, var(--good) 8%, transparent) 320deg,
+    color-mix(in srgb, var(--good) 38%, transparent) 360deg);
+  animation:spin 4s linear infinite; }
+.radar .blip { position:absolute; z-index:2; width:8px; height:8px; margin:-4px 0 0 -4px;
+               border-radius:50%; cursor:default; }
+.radar .blip.hot::after { content:""; position:absolute; inset:0; border-radius:50%;
+                          background:inherit; animation:pulse 1.6s ease-out infinite; }
+.radar .core { position:absolute; left:50%; top:50%; width:6px; height:6px; margin:-3px;
+               border-radius:50%; background:var(--ink); z-index:2; }
+.radar-text .big { font-size:13.5px; font-weight:600; margin-top:8px; }
+.radar-text p { margin:2px 0 0; color:var(--ink-3); font-size:12.5px; max-width:180px; }
+@media (max-width: 760px) { .radar-card { width:100%; } }
+"""
+
+
+def radar(latest: list[RunRow], repos: int) -> str:
+    """Latest review per PR as blips: riskier PRs sit nearer the center."""
+    blips = []
+    for r in latest[:14]:
+        seed = sum(ord(ch) for ch in f"{r.repo}#{r.pr_number}") * 37
+        angle = math.radians(seed % 360)
+        dist = 8 + (10 - max(0, min(10, r.max_risk))) * 3.7  # % of the radius-ish box
+        x, y = 50 + dist * math.cos(angle), 50 + dist * math.sin(angle)
+        cls = _band(r.max_risk)
+        name = r.repo.split("/")[-1]
+        blips.append(
+            f'<span class="blip c-{cls}{" hot" if cls == "crit" else ""}" '
+            f'style="left:{x:.1f}%;top:{y:.1f}%" '
+            f'data-tip="{esc(name)} #{r.pr_number} · risk {r.max_risk}/10"></span>'
+        )
+    hot = sum(1 for r in latest if r.max_risk >= 7)
+    status = (
+        f"{hot} high-risk PR{'s' if hot != 1 else ''} near the center"
+        if hot else "Nothing high-risk right now"
+    )
+    return f"""<div class="card radar-card">
+  <div class="radar" role="img" aria-label="{len(latest)} reviewed pull requests by risk">
+    <div class="sweep"></div><div class="core"></div>{"".join(blips)}</div>
+  <div class="radar-text"><span class="live"><i></i>WATCHING</span>
+    <div class="big">{repos} repositor{"ies" if repos != 1 else "y"}</div>
+    <p>{status}. Closer to the center means riskier.</p></div>
 </div>"""

@@ -220,6 +220,42 @@ td.num { font-family:var(--mono); font-size:12.5px; }
 
 footer.foot { color:var(--ink-3); font-size:12.5px; margin-top:40px; }
 
+
+/* --- texture + motion --- */
+body::before { content:""; position:absolute; inset:0 0 auto 0; height:420px; z-index:-1;
+  pointer-events:none;
+  background-image:radial-gradient(var(--border-strong) 1px, transparent 1.2px);
+  background-size:18px 18px;
+  -webkit-mask-image:linear-gradient(180deg,#000 0%,transparent 100%);
+  mask-image:linear-gradient(180deg,#000 0%,transparent 100%); opacity:.55; }
+body { position:relative; isolation:isolate; }
+@keyframes rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+@keyframes tick { from { opacity:.15; transform:scaleY(.3); } to { opacity:1; transform:none; } }
+@keyframes grow { from { transform:scaleY(0); } to { transform:none; } }
+@keyframes pulse { 0% { transform:scale(1); opacity:.7; }
+                   100% { transform:scale(3.2); opacity:0; } }
+@keyframes spin { to { transform:rotate(360deg); } }
+main > .page-head, main > .stats, main > .panels, main > .section, main > .toolbar,
+main > .repo-grid, main > .card, main > .layout {
+  animation:rise .5s cubic-bezier(.2,.7,.2,1) both; }
+main > :nth-child(2) { animation-delay:.04s; } main > :nth-child(3) { animation-delay:.08s; }
+main > :nth-child(4) { animation-delay:.12s; } main > :nth-child(5) { animation-delay:.16s; }
+main > :nth-child(6) { animation-delay:.2s; } main > :nth-child(n+7) { animation-delay:.24s; }
+.meter i.on { animation:tick .35s ease-out both; transform-origin:bottom; }
+.meter i:nth-child(2) { animation-delay:.04s; } .meter i:nth-child(3) { animation-delay:.08s; }
+.meter i:nth-child(4) { animation-delay:.12s; } .meter i:nth-child(5) { animation-delay:.16s; }
+.meter i:nth-child(6) { animation-delay:.2s; } .meter i:nth-child(7) { animation-delay:.24s; }
+.meter i:nth-child(8) { animation-delay:.28s; } .meter i:nth-child(9) { animation-delay:.32s; }
+.meter i:nth-child(10) { animation-delay:.36s; }
+.live { display:inline-flex; align-items:center; gap:7px; font-family:var(--mono);
+        font-size:11.5px; color:var(--good); letter-spacing:.04em; }
+.live i { position:relative; width:7px; height:7px; border-radius:50%; background:var(--good); }
+.live i::after { content:""; position:absolute; inset:0; border-radius:50%;
+                 background:var(--good); animation:pulse 1.8s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation:none !important; transition:none !important; }
+}
+
 @media (max-width: 760px) {
   .wrap { padding:0 16px; }
   .stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
@@ -256,6 +292,25 @@ GITHUB_ICON = (
     ".82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 "
     '2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>'
 )
+
+COUNT_SCRIPT = """<script>
+(function () {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  document.querySelectorAll(".stat .v").forEach(function (el) {
+    var m = el.textContent.trim().match(/^(\\$?)([0-9]+(?:\\.[0-9]+)?)$/);
+    if (!m) return;
+    var end = parseFloat(m[2]), dec = (m[2].split(".")[1] || "").length, t0 = null;
+    if (!end) return;
+    function step(t) {
+      t0 = t0 || t;
+      var k = Math.min(1, (t - t0) / 700), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = m[1] + (end * e).toFixed(dec);
+      if (k < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  });
+})();
+</script>"""
 
 SEV_LABEL = {"high": "HIGH", "medium": "MED", "low": "LOW"}
 
@@ -334,5 +389,6 @@ def shell(
 <main class="wrap">
 {body}
 </main>
+{COUNT_SCRIPT}
 {extra}
 </body></html>"""
