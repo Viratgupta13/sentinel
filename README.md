@@ -23,7 +23,7 @@ the risky parts of a diff to a strong model, so reviews stay fast and cheap.
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TD
     PR[PR opened / pushed] -->|signed webhook| S[Sentinel server]
     S --> D[Diff parser]
     D --> ST{Static signals<br/>free}
