@@ -1,31 +1,82 @@
 # Sentinel
 
-**Context-aware PR risk reviewer with tiered LLM routing.**
+**Know which pull requests can hurt you before you merge.**
 
-AI code-review tools spend the same strong model on every line of every PR - expensive,
-slow, and noisy. Sentinel routes work by risk:
+Sentinel is a GitHub App that risk-scores every pull request, remembers why your
+team made past decisions, and flags changes that quietly undo them. It sends only
+the risky parts of a diff to a strong model, so reviews stay fast and cheap.
 
+[**Live demo → sentinel-us50.onrender.com**](https://sentinel-us50.onrender.com) ·
+[Deploy your own](docs/HOSTING.md) ·
+![CI](https://github.com/Viratgupta13/sentinel/actions/workflows/ci.yml/badge.svg)
+
+![Sentinel dashboard: radar of reviewed PRs, review activity, open findings](docs/media/home-demo.gif)
+
+## What it does
+
+| | |
+|---|---|
+| **Risk-scored reviews** - every PR opened on an installed repo is reviewed automatically. The result lands as one PR comment (updated on each push) and on the dashboard, with a 0-10 risk score and findings tied to files. | ![Repo page with open PRs and inline findings](docs/media/repo-dark.png) |
+| **Ask any repo** - "How does auth work?" "Why is this built this way?" Answers cite numbered sources that open the exact file and line range on GitHub, and answer in the asker's language. | ![Landing page with a sample review](docs/media/landing.png) |
+| **Decision memory** - mines merged PRs for the team's decisions and their reasons. A change that re-introduces something removed on purpose is escalated and the source PR is cited. | ![Usage page: hunk funnel and token costs](docs/media/usage.png) |
+
+## How it works
+
+```mermaid
+flowchart LR
+    PR[PR opened / pushed] -->|signed webhook| S[Sentinel server]
+    S --> D[Diff parser]
+    D --> ST{Static signals<br/>free}
+    ST -->|lockfiles, generated, docs| SK[Skipped]
+    ST -->|real hunks| T[Fast model triage<br/>every hunk, batched]
+    T -->|risk below threshold| OK[Low risk]
+    T -->|risk at or above threshold| R[Strong model deep review<br/>risky hunks only]
+    M[(Decision memory<br/>past PRs, FTS5)] -.->|cited context| R
+    R --> C[PR comment + dashboard]
+    R --> L[(Cost ledger<br/>Postgres)]
 ```
-GitHub PR ──► diff parser ──► static signals (free)
-                                   │
-                     skip: lockfiles, generated, docs
-                                   │
-                        Haiku triage (cheap, batched)      ◄── every real hunk
-                                   │
-                         risk ≥ threshold? ──► Opus deep review (strong, cached)
-                                   │
-                        report: findings + per-model cost ledger
-```
 
-Three design pillars (the "gaps" this project attacks):
+The expensive model never sees the whole diff: a free static pass drops noise,
+a cheap model scores each remaining hunk, and only hunks above the risk threshold
+(plus a static floor for auth, payments, DB and security code) get a deep review.
 
-1. **Review quality** - deep review only where it matters; precision over noise;
-   critical areas (auth/payments/db/security) get a static floor that a cheap-model
-   miss can't bury.
-2. **Team context** *(Phase 2)* - a decision memory mined from past PRs, review
-   comments, and incidents, retrieved into the review prompt with citations.
-3. **Cost** - tiered models + prompt caching + zero-cost skips, with a per-PR
-   usage ledger and a naive-baseline comparison printed on every run.
+## Results so far (measured)
+
+Backtest on **home-assistant/core**, using the free Groq models: 25 merged PRs that
+were later reverted (the "bad" ones) and 10-15 that were not.
+
+| pipeline | reverted PRs flagged (recall) | clean PRs flagged (noise) | tokens / PR |
+|---|---|---|---|
+| static rules only | 0% | 0% | 0 |
+| + fast-model triage | 24% | 50% | 3,351 |
+| + strong-model deep review | **48%** | 70% | 5,814 |
+
+- Deep review **doubles recall** over triage alone (24% → 48%). Labels are
+  conservative (only explicit reverts count), so recall is a lower bound.
+- Noise is still high on free models; the headline run with Claude models and the
+  memory ablation is next. Full table: [evals/results](evals/results/home-assistant__core.groq.md).
+- Live: on the demo repo, Sentinel rated a PR that builds SQL from user input
+  **10/10** and one that stores plaintext passwords **9/10**.
+- 85 automated tests, run on SQLite and on a real Postgres.
+
+## Built with
+
+Python 3.11+ · FastAPI · GitHub App + OAuth (per-installation tokens) · Postgres
+(Neon) / SQLite · SQLite FTS5 retrieval · Anthropic Claude or any OpenAI-compatible
+provider (Groq free tier in the live demo) · server-rendered HTML/SVG, no frontend
+framework · Render + GitHub Actions.
+
+<details><summary>More screenshots</summary>
+
+| Home (light) | Mobile |
+|---|---|
+| ![Home](docs/media/home.png) | ![Mobile](docs/media/home-mobile.png) |
+
+![Landing page code-scan animation](docs/media/landing-demo.gif)
+
+</details>
+
+Screenshots and GIFs use a seeded demo instance; the live site shows real data.
 
 ## Quickstart
 
@@ -170,3 +221,7 @@ docker build -t sentinel . && docker run sentinel version
 - [x] **Phase 7d - on-demand actions**: "Review now" on any open PR,
   "Build decision memory" from the repo page (mirrored to Postgres so it
   survives redeploys), live repo-page refresh, keep-alive ping workflow
+- [x] **Phase 7e - product UI**: IBM Plex instrument-style design, dark/light
+  toggle, home radar of reviewed PRs, review-activity and open-findings
+  charts, hunk funnel, code-scan landing page (all server-rendered SVG/CSS,
+  reduced-motion aware)
