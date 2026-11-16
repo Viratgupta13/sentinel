@@ -162,5 +162,14 @@ def test_home_sorted_by_recent_activity(env, tmp_path):
     history.record_report(_report("virat/lib", 2, 3))
     history.close()
     text = env.get("/dashboard").text
+    grid = text[text.index('class="repo-grid"'):]
     # virat/lib reviewed most recently => its card comes first
-    assert text.index('href="/repo/virat/lib"') < text.index('href="/repo/virat/app"')
+    assert grid.index('href="/repo/virat/lib"') < grid.index('href="/repo/virat/app"')
+
+
+def test_home_stats_and_attention(env):
+    text = env.get("/dashboard").text
+    assert "Needs attention" in text            # virat/app#7 is risk 9
+    assert "PRs reviewed" in text and "High-severity findings" in text
+    attn = text[text.index("Needs attention"):text.index('class="repo-grid"')]
+    assert "#7" in attn and "boom" in attn

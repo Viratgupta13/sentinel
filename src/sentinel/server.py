@@ -260,7 +260,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "decisions": decisions.get(repo, 0),
             })
         cards.sort(key=lambda c: -c["last_ts"])
-        return HTMLResponse(render_home(cards, user))
+        mine = [r for r in rows if r.repo in set(repos)]
+        latest_per_pr: dict[tuple, object] = {}
+        for r in mine:  # rows are newest first
+            latest_per_pr.setdefault((r.repo, r.pr_number), r)
+        stats = {
+            "reviews": len(mine),
+            "high": sum(
+                1 for r in latest_per_pr.values()
+                for f in (r.findings or []) if f.get("severity") == "high"
+            ),
+            "cost": sum(r.cost_usd for r in mine),
+        }
+        attention = [r for r in latest_per_pr.values() if r.max_risk >= 7]
+        return HTMLResponse(render_home(cards, user, stats, attention))
 
     @app.get("/overview", response_class=HTMLResponse)
     def overview(request: Request) -> Response:

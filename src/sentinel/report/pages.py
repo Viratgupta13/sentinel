@@ -1,9 +1,9 @@
 """Phase 7: repo-centric hub pages - the signed-in product UI.
 
-Home ("/dashboard") is a grid of the user's installed repos; each repo gets
-its own page with live open PRs (risk-badged when Sentinel reviewed them),
-open issues, review history, and decision-memory stats. The old unified
-cost view stays at /overview.
+Home ("/dashboard") is the user's repo grid with headline numbers and the
+reviews that need attention; each repo page puts open PRs (with their latest
+findings inline), issues, "Ask this repo" and decision memory side by side.
+The unified cost view lives at /overview.
 """
 
 from __future__ import annotations
@@ -12,87 +12,94 @@ import html
 import time
 
 from sentinel.costs import RunRow
-from sentinel.report.dashboard import (
-    _CSS,
-    _LIVE_SCRIPT,
-    _review_card,
-    _risk_badge,
-    _user_chip,
-)
+from sentinel.report import ui
+from sentinel.report.dashboard import _LIVE_SCRIPT, _review_card, _risk_badge
 
 _EXTRA_CSS = """
-.crumbs { font-size:13px; margin-bottom:14px; }
-.crumbs a { color:var(--ink-3); text-decoration:none; }
-.crumbs a:hover { color:var(--ink); }
-.repo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr));
+/* --- home --- */
+.toolbar { display:flex; gap:10px; align-items:center; margin:28px 0 12px; }
+.toolbar h2 { flex:1; }
+.toolbar input { width:260px; }
+.repo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
              gap:12px; }
-a.repo-card { display:block; padding:16px; text-decoration:none; color:var(--ink);
-              background:var(--surface); border:1px solid var(--border);
-              border-radius:12px; transition:border-color .15s; }
-a.repo-card:hover { border-color:var(--ink-3); }
-.repo-card .rname { font-weight:650; font-size:15px; word-break:break-all; }
-.repo-card .rmeta { color:var(--ink-2); font-size:12.5px; margin-top:8px;
-                    display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-.list { padding:2px 16px; }
-.list-row { display:flex; align-items:center; gap:10px; padding:9px 0;
-            font-size:13.5px; }
-.list-row + .list-row { border-top:1px solid var(--grid); }
-.list-row a.t { color:var(--ink); text-decoration:none; font-weight:550;
-                overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.list-row a.t:hover { text-decoration:underline; }
-.list-row .meta { color:var(--ink-3); font-size:12.5px; margin-left:auto;
-                  flex:none; }
-.pill { border:1px solid var(--border); color:var(--ink-2); border-radius:999px;
-        padding:1px 9px; font-size:11.5px; flex:none; }
-.note { color:var(--ink-3); font-size:12.5px; margin:6px 0 0; }
-h1 a { color:inherit; text-decoration:none; }
+a.repo-card { display:flex; flex-direction:column; gap:12px; padding:16px 18px;
+              text-decoration:none; background:var(--surface); border:1px solid var(--border);
+              border-radius:14px; box-shadow:var(--shadow); min-width:0;
+              transition:border-color .15s, transform .15s, box-shadow .15s; }
+a.repo-card:hover { border-color:var(--border-strong); transform:translateY(-1px);
+                    box-shadow:var(--shadow-lg); }
+.rc-top { display:flex; align-items:center; gap:11px; min-width:0; }
+.mono-av { width:36px; height:36px; border-radius:10px; flex:none; display:grid;
+           place-items:center; font-weight:700; font-size:15px; color:var(--accent);
+           background:var(--accent-soft); text-transform:uppercase; }
+.rc-name { min-width:0; }
+.rc-name b { display:block; font-size:15px; font-weight:650; overflow:hidden;
+             text-overflow:ellipsis; white-space:nowrap; letter-spacing:-.01em; }
+.rc-name span { display:block; color:var(--ink-3); font-size:12.5px; }
+.rc-foot { display:flex; align-items:center; gap:10px; color:var(--ink-3);
+           font-size:12.5px; margin-top:auto; padding-top:12px;
+           border-top:1px solid var(--border); }
+.rc-foot .r { margin-left:auto; }
+.attn .row .t { font-size:14px; }
 
-/* --- ask the repo --- */
-.ask { padding:14px 16px; }
+/* --- repo page --- */
+.layout { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:20px;
+          align-items:start; margin-top:24px; }
+.layout > div { min-width:0; }
+.layout .section:first-child { margin-top:0; }
+.side .card + .card { margin-top:14px; }
+.side h3 { font-size:14px; margin:0 0 6px; }
+.side p { margin:0; color:var(--ink-2); font-size:13.5px; }
+.side .actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px; }
+.side .status { color:var(--ink-3); font-size:12.5px; }
+.kv { display:flex; justify-content:space-between; font-size:13.5px; padding:6px 0; }
+.kv + .kv { border-top:1px solid var(--border); }
+.kv span:first-child { color:var(--ink-2); }
+.sub .findings { padding-top:0; padding-left:124px; }
+.rows > .row > .badge, .rows > .row > .pill { min-width:92px; justify-content:center; }
+
+/* --- ask --- */
+.ask { padding:18px 20px;
+       background:linear-gradient(180deg,var(--accent-soft),var(--surface) 70%); }
+.ask-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.ask-head .ic { width:30px; height:30px; border-radius:9px; display:grid; place-items:center;
+                background:var(--accent); color:var(--accent-ink); font-weight:700; }
+.ask-head p { margin:0; color:var(--ink-2); font-size:13px; }
 .ask form { display:flex; gap:8px; }
-.ask input { flex:1; min-width:0; font:inherit; font-size:14px; color:var(--ink);
-             background:var(--plane); border:1px solid var(--border);
-             border-radius:8px; padding:9px 12px; }
-.ask input:focus { outline:2px solid var(--bar); outline-offset:-1px; }
-.ask button { font:inherit; font-size:14px; font-weight:600; border:0;
-              border-radius:8px; padding:0 16px; cursor:pointer;
-              background:var(--ink); color:var(--plane); }
-.ask button:disabled { opacity:.5; cursor:default; }
-.ask .hint { color:var(--ink-3); font-size:12.5px; margin-top:8px; }
-.ask .hint a { color:var(--ink-2); cursor:pointer; text-decoration:underline dotted; }
-.qa { border-top:1px solid var(--grid); margin-top:14px; padding-top:12px; }
-.qa .q { font-weight:600; font-size:14px; }
-.qa .a { font-size:14px; line-height:1.6; margin-top:6px; white-space:pre-wrap; }
-.qa .a code { background:var(--plane); border:1px solid var(--border);
-              border-radius:4px; padding:0 4px; }
-.qa .a sup a { color:var(--bar); text-decoration:none; font-weight:600; }
-.qa .src { margin-top:8px; font-size:12.5px; color:var(--ink-3); }
-.qa .src a { color:var(--ink-2); font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-             text-decoration:none; }
-.qa .src a:hover { text-decoration:underline; }
+.ask input { flex:1; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+.chips a { font-size:12.5px; color:var(--ink-2); background:var(--surface);
+           border:1px solid var(--border); border-radius:999px; padding:4px 11px;
+           cursor:pointer; text-decoration:none; }
+.chips a:hover { color:var(--ink); border-color:var(--border-strong); }
+.chips a.ghost { border-style:dashed; }
+.qa { border-top:1px solid var(--border); margin-top:16px; padding-top:14px; }
+.qa .q { font-weight:650; font-size:14px; }
+.qa .a { font-size:14px; line-height:1.65; margin-top:8px; white-space:pre-wrap; }
+.qa .a code { background:var(--surface-2); border:1px solid var(--border);
+              border-radius:5px; padding:0 5px; }
+.qa .a sup a { color:var(--accent); text-decoration:none; font-weight:700; }
+.qa .src { margin-top:10px; font-size:12.5px; color:var(--ink-3); line-height:1.9; }
+.qa .src a { color:var(--ink-2); font-family:var(--mono); font-size:12px;
+             text-decoration:none; background:var(--surface-2); border:1px solid var(--border);
+             border-radius:6px; padding:1px 6px; }
+.qa .src a:hover { color:var(--ink); }
 .qa .err { color:var(--crit); font-size:13.5px; margin-top:6px; }
 .thinking { color:var(--ink-3); font-size:13.5px; margin-top:6px; }
 
-/* --- on-demand actions --- */
-button.mini { font:inherit; font-size:12px; font-weight:600; flex:none;
-              border:1px solid var(--border); background:var(--plane);
-              color:var(--ink-2); border-radius:6px; padding:3px 10px;
-              cursor:pointer; }
-button.mini:hover { color:var(--ink); border-color:var(--ink-3); }
-button.mini:disabled { opacity:.6; cursor:default; }
-.mem { padding:14px 16px; font-size:13.5px; line-height:1.55; }
-.mem .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap;
-            margin-top:10px; }
-.mem .status { color:var(--ink-3); font-size:12.5px; }
-.fresh { position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
-         background:var(--ink); color:var(--plane); border-radius:999px;
-         padding:8px 16px; font-size:13px; box-shadow:0 4px 18px rgba(0,0,0,.18); }
-.fresh a { color:inherit; font-weight:650; }
+.fresh { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:30;
+         background:var(--ink); color:var(--bg); border-radius:999px; padding:9px 18px;
+         font-size:13px; box-shadow:var(--shadow-lg); }
+.fresh a { color:inherit; font-weight:700; }
+
+@media (max-width: 900px) { .layout { grid-template-columns:1fr; } }
+@media (max-width: 760px) {
+  .toolbar input { width:100%; } .toolbar { flex-wrap:wrap; }
+  .sub .findings { padding-left:16px; }
+  .rows > .row > .badge, .rows > .row > .pill { min-width:0; }
+}
 """
 
-# Repo page actions + live refresh. Polls status; reloads when this repo gets a
-# newer review/memory run - unless an Ask conversation is on screen, where it
-# offers a refresh link instead of wiping the answers.
 _REPO_SCRIPT = """<script>
 (function () {
   var root = document.getElementById("repo-actions");
@@ -232,6 +239,19 @@ _ASK_SCRIPT = """<script>
 })();
 </script>"""
 
+_HOME_SCRIPT = """<script>
+(function () {
+  var f = document.getElementById("repo-filter");
+  if (!f) return;
+  f.addEventListener("input", function () {
+    var q = f.value.toLowerCase().trim();
+    document.querySelectorAll(".repo-card").forEach(function (c) {
+      c.style.display = c.getAttribute("data-name").indexOf(q) === -1 ? "none" : "";
+    });
+  });
+})();
+</script>"""
+
 _SUGGESTIONS = (
     "What does this repo do and how is it structured?",
     "How does data flow from a request to the database?",
@@ -240,39 +260,28 @@ _SUGGESTIONS = (
 
 
 def _ask_panel(repo: str) -> str:
-    chips = " · ".join(
+    chips = "".join(
         f'<a data-q="{html.escape(q)}">{html.escape(q)}</a>' for q in _SUGGESTIONS
     )
-    return f"""<h2>Ask this repo</h2>
-<div class="card ask">
+    return f"""<div class="card ask">
+  <div class="ask-head"><div class="ic">?</div><div><h2>Ask this repo</h2>
+    <p>Architecture, design decisions, where something lives - answers cite exact lines.</p>
+  </div></div>
   <form id="ask-form" data-api="/api/repo/{html.escape(repo)}/ask">
-    <input id="ask-input" maxlength="600" autocomplete="off"
-           placeholder="Architecture, design decisions, where something lives…">
-    <button type="submit">Ask</button>
+    <input id="ask-input" class="field" maxlength="600" autocomplete="off"
+           placeholder="e.g. How is authentication handled?">
+    <button class="btn primary" type="submit">Ask</button>
   </form>
-  <div class="hint">Try: {chips} · <a id="ask-reindex">re-read latest code</a></div>
+  <div class="chips">{chips}<a id="ask-reindex" class="ghost">↻ re-read latest code</a></div>
   <div id="ask-log"></div>
 </div>"""
 
 
-def _page(title: str, body: str, user: dict | None, live_ts: float | None = None) -> str:
+def _page(
+    title: str, body: str, user: dict | None, live_ts: float | None = None, active: str = ""
+) -> str:
     live = _LIVE_SCRIPT % live_ts if live_ts is not None else ""
-    return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{html.escape(title)}</title><style>{_CSS}{_EXTRA_CSS}</style></head>
-<body>
-<header>
-  <div class="lead">{body_header(title)}</div>
-  {_user_chip(user)}
-</header>
-{body}
-{live}
-</body></html>"""
-
-
-def body_header(title: str) -> str:
-    return f'<h1><a href="/dashboard">{html.escape(title)}</a></h1>'
+    return ui.shell(title, f"<style>{_EXTRA_CSS}</style>{body}", user, active, live)
 
 
 def _when(iso: str) -> str:
@@ -283,45 +292,93 @@ def _when(iso: str) -> str:
         return ""
 
 
+def _split(repo: str) -> tuple[str, str]:
+    owner, _, name = repo.partition("/")
+    return owner, name or owner
+
+
 def _repo_card(c: dict) -> str:
+    owner, name = _split(c["repo"])
     badge = (
         _risk_badge(c["last_risk"])
         if c["reviews"]
         else '<span class="pill">no reviews yet</span>'
     )
-    decisions = f'<span>{c["decisions"]} decisions</span>' if c.get("decisions") else ""
-    last = (
-        f'<span>last {time.strftime("%b %d", time.localtime(c["last_ts"]))}</span>'
-        if c.get("last_ts")
-        else ""
-    )
+    n, d = c["reviews"], c.get("decisions", 0)
+    sub = [owner] + ([f"{d} decision{'s' if d != 1 else ''}"] if d else [])
+    right = [f"{n} review{'s' if n != 1 else ''}"]
+    if c.get("last_ts"):
+        right.append(ui.ago(c["last_ts"]))
     return (
-        f'<a class="repo-card" href="/repo/{html.escape(c["repo"])}">'
-        f'<div class="rname">{html.escape(c["repo"])}</div>'
-        f'<div class="rmeta">{badge}'
-        f'<span>{c["reviews"]} review{"s" if c["reviews"] != 1 else ""}</span>'
-        f"{decisions}{last}</div></a>"
+        f'<a class="repo-card" href="/repo/{html.escape(c["repo"])}" '
+        f'data-name="{html.escape(c["repo"].lower())}" title="{html.escape(c["repo"])}">'
+        f'<div class="rc-top"><div class="mono-av">{html.escape(name[:1])}</div>'
+        f'<div class="rc-name"><b>{html.escape(name)}</b>'
+        f'<span>{html.escape(" · ".join(sub))}</span></div></div>'
+        f'<div class="rc-foot">{badge}<span class="r">{" · ".join(right)}</span></div></a>'
     )
 
 
-def render_home(repo_cards: list[dict], user: dict | None) -> str:
-    """repo_cards: [{repo, reviews, last_ts, last_risk, decisions}]"""
+def render_home(
+    repo_cards: list[dict],
+    user: dict | None,
+    stats: dict | None = None,
+    attention: list[RunRow] | None = None,
+) -> str:
+    """repo_cards: [{repo, reviews, last_ts, last_risk, decisions}];
+    stats: {reviews, high, cost}; attention: recent high-risk reviews."""
+    stats = stats or {}
+    first = (user or {}).get("login", "")
     cards = "".join(_repo_card(c) for c in repo_cards)
+    tiles = f"""<div class="stats">
+  <div class="stat"><div class="k">Repositories</div><div class="v">{len(repo_cards)}</div>
+    <div class="s">connected through the GitHub App</div></div>
+  <div class="stat"><div class="k">PRs reviewed</div><div class="v">{stats.get("reviews", 0)}</div>
+    <div class="s">automatic + on demand</div></div>
+  <div class="stat hot"><div class="k">High-severity findings</div>
+    <div class="v">{stats.get("high", 0)}</div><div class="s">across all reviews</div></div>
+  <div class="stat"><div class="k">Spend</div><div class="v">${stats.get("cost", 0.0):.2f}</div>
+    <div class="s"><a href="/overview" class="muted">usage details →</a></div></div>
+</div>"""
+
+    attn = ""
+    if attention:
+        rows = []
+        for r in attention[:5]:
+            _, name = _split(r.repo)
+            top = (r.findings or [{}])[0].get("title", "")
+            rows.append(
+                f'<div class="row">{_risk_badge(r.max_risk)}<div class="grow">'
+                f'<a class="t" href="/repo/{html.escape(r.repo)}">{html.escape(name)}'
+                f" #{r.pr_number}</a>"
+                f'<span class="meta">{html.escape(top)}</span></div>'
+                f'<span class="end meta">{ui.ago(r.ts)}</span></div>'
+            )
+        attn = f"""<div class="section"><div class="section-head"><h2>Needs attention</h2>
+<span class="count">high-risk pull requests</span></div>
+<div class="card rows attn">{"".join(rows)}</div></div>"""
+
     empty = (
-        '<div class="card empty">No repos yet - install the GitHub App on a '
-        "repository and it will show up here.</div>"
+        '<div class="card empty"><b>No repositories yet</b>Install the Sentinel GitHub App '
+        "on a repository and it will show up here.</div>"
     )
     body = f"""
-<div class="sub" style="margin:-14px 0 18px">Your repositories - every PR gets an
-automatic risk review. Pick a repo to see its pull requests, issues and history.</div>
+<div class="page-head"><div class="grow">
+  <h1>Welcome back{", " + html.escape(first) if first else ""}</h1>
+  <p class="lede">Every pull request on these repos gets an automatic risk review.</p>
+</div></div>
+{tiles}
+{attn}
+<div class="toolbar"><h2>Repositories</h2>
+  <input id="repo-filter" class="field" placeholder="Filter repositories…" autocomplete="off">
+</div>
 <div class="repo-grid">{cards}</div>
 {"" if repo_cards else empty}
-<div class="note" style="margin-top:22px"><a href="/overview"
-  style="color:var(--ink-3)">Usage &amp; costs &rarr;</a></div>
+{_HOME_SCRIPT}
 """
     return _page(
         "Sentinel", body, user,
-        live_ts=max((c["last_ts"] for c in repo_cards), default=0.0),
+        live_ts=max((c["last_ts"] for c in repo_cards), default=0.0), active="repos",
     )
 
 
@@ -335,13 +392,14 @@ def render_repo_page(
     fetch_error: str | None = None,
     latest_ts: float = 0.0,
 ) -> str:
+    owner, name = _split(repo)
     latest_review: dict[int, RunRow] = {}
     for r in reviews:
         if r.pr_number and r.pr_number not in latest_review:
             latest_review[r.pr_number] = r
+    open_numbers = {pr["number"] for pr in (prs or [])}
 
     def _pr_row(pr: dict) -> str:
-        badge = ""
         row = latest_review.get(pr["number"])
         if row is not None:
             badge = _risk_badge(row.max_risk)
@@ -350,31 +408,38 @@ def render_repo_page(
         else:
             badge = '<span class="pill">no review yet</span>'
         label = "Re-review" if row is not None else "Review now"
+        head = (
+            f'<div class="row">{badge}<div class="grow">'
+            f'<a class="t" href="{html.escape(pr["html_url"])}">{html.escape(pr["title"])}</a>'
+            f'<span class="meta">#{pr["number"]} · {html.escape(pr["author"])} · '
+            f'{_when(pr["updated_at"])}</span></div>'
+            f'<div class="end"><button class="btn sm" data-review="{pr["number"]}">'
+            f"{label}</button></div></div>"
+        )
+        if row is None:
+            return head
         return (
-            f'<div class="list-row">{badge}'
-            f'<a class="t" href="{html.escape(pr["html_url"])}">#{pr["number"]} '
-            f"{html.escape(pr['title'])}</a>"
-            f'<span class="meta">{html.escape(pr["author"])} · '
-            f'{_when(pr["updated_at"])}</span>'
-            f'<button class="mini" data-review="{pr["number"]}">{label}</button></div>'
+            f'{head}<div class="sub"><ul class="findings">'
+            f"{ui.finding_items(row.findings or [])}</ul></div>"
         )
 
     pr_rows = "".join(_pr_row(pr) for pr in (prs or []))
     prs_block = (
-        f'<div class="card list">{pr_rows}</div>'
+        f'<div class="card rows">{pr_rows}</div>'
         if pr_rows
-        else '<div class="card empty">No open pull requests.</div>'
+        else '<div class="card empty"><b>No open pull requests</b>'
+        "Open one and Sentinel reviews it automatically.</div>"
     )
 
     issue_rows = "".join(
-        f'<div class="list-row">'
-        f'<a class="t" href="{html.escape(i["html_url"])}">#{i["number"]} '
-        f"{html.escape(i['title'])}</a>"
-        f'<span class="meta">{html.escape(i["author"])} · {_when(i["updated_at"])}</span></div>'
+        f'<div class="row"><div class="grow">'
+        f'<a class="t" href="{html.escape(i["html_url"])}">{html.escape(i["title"])}</a>'
+        f'<span class="meta">#{i["number"]} · {html.escape(i["author"])} · '
+        f'{_when(i["updated_at"])}</span></div></div>'
         for i in (issues or [])
     )
     if issue_rows:
-        issues_block = f'<div class="card list">{issue_rows}</div>'
+        issues_block = f'<div class="card rows">{issue_rows}</div>'
     elif issues is None:
         issues_block = (
             '<div class="card empty">Issues not visible - grant the GitHub App '
@@ -383,21 +448,32 @@ def render_repo_page(
     else:
         issues_block = '<div class="card empty">No open issues.</div>'
 
-    review_cards = "".join(_review_card(r) for r in reviews[:8]) or (
-        '<div class="card empty">No reviews yet - open a pull request and '
-        "Sentinel will review it automatically.</div>"
+    # Open PRs already show their latest findings; history keeps the rest.
+    history = [
+        r for r in reviews
+        if r.pr_number not in open_numbers or r is not latest_review.get(r.pr_number)
+    ]
+    history_block = (
+        f"""<div class="section"><div class="section-head"><h2>Review history</h2>
+<span class="count">{len(history)}</span></div>
+{"".join(_review_card(r, link=True) for r in history[:8])}</div>"""
+        if history
+        else ""
     )
 
     error_note = (
-        f'<div class="note">Live GitHub data unavailable: {html.escape(fetch_error)}</div>'
+        f'<div class="alert">Live GitHub data unavailable: {html.escape(fetch_error)}</div>'
         if fetch_error
         else ""
     )
+
     if mem:
         kinds = ", ".join(f"{k} {v}" for k, v in sorted(mem["by_kind"].items()))
         mem_text = (
-            f"<b>{mem['decisions']} decisions</b> mined from {mem['harvested_prs']} "
-            f"merged PRs{' · ' + html.escape(kinds) if kinds else ''}. Reviews cite them "
+            f"<b>{mem['decisions']} decision{'s' if mem['decisions'] != 1 else ''}</b> "
+            f"mined from {mem['harvested_prs']} "
+            f"merged PR{'s' if mem['harvested_prs'] != 1 else ''}"
+            f"{' · ' + html.escape(kinds) if kinds else ''}. Reviews cite them "
             "when a change touches the same code, and Ask uses them to explain why."
         )
         mem_label = "Update memory"
@@ -408,27 +484,45 @@ def render_repo_page(
             "flag changes that undo them, and Ask can answer <i>why</i> questions."
         )
         mem_label = "Build decision memory"
-    mem_note = (
-        f'<h2>Decision memory</h2><div class="card mem">{mem_text}'
-        f'<div class="row"><button class="mini" id="mem-build">{mem_label}</button>'
-        f'<span class="status" id="mem-status"></span></div></div>'
+
+    top_risk = max((r.max_risk for r in latest_review.values()), default=0)
+    facts = "".join(
+        f'<div class="kv"><span>{k}</span><b>{v}</b></div>'
+        for k, v in (
+            ("Open pull requests", len(prs or [])),
+            ("Reviews", len(reviews)),
+            ("Highest open risk", f"{top_risk}/10" if latest_review else "-"),
+            ("Last activity", ui.ago(latest_ts) or "-"),
+        )
     )
 
     body = f"""
 <div id="repo-actions" data-api="/api/repo/{html.escape(repo)}"
      data-latest="{latest_ts}"></div>
-<div class="crumbs"><a href="/dashboard">&larr; All repositories</a> ·
-  <a href="https://github.com/{html.escape(repo)}">view on GitHub</a></div>
+<div class="crumbs"><a href="/dashboard">&larr; All repositories</a></div>
+<div class="page-head"><div class="grow">
+  <h1><span class="owner">{html.escape(owner)} / </span>{html.escape(name)}</h1>
+  <p class="lede">Automatic risk review is on for every pull request.</p></div>
+  <a class="btn" href="https://github.com/{html.escape(repo)}">{ui.GITHUB_ICON}View on GitHub</a>
+</div>
 {error_note}
 {_ask_panel(repo)}
-<h2>Open pull requests</h2>
-{prs_block}
-<h2>Recent reviews</h2>
-{review_cards}
-<h2>Open issues</h2>
-{issues_block}
-{mem_note}
+<div class="layout">
+  <div>
+    <div class="section"><div class="section-head"><h2>Open pull requests</h2>
+      <span class="count">{len(prs or [])}</span></div>{prs_block}</div>
+    {history_block}
+    <div class="section"><div class="section-head"><h2>Open issues</h2>
+      <span class="count">{len(issues or [])}</span></div>{issues_block}</div>
+  </div>
+  <aside class="side">
+    <div class="card pad">{facts}</div>
+    <div class="card pad"><h3>Decision memory</h3><p>{mem_text}</p>
+      <div class="actions"><button class="btn sm" id="mem-build">{mem_label}</button>
+      <span class="status" id="mem-status"></span></div></div>
+  </aside>
+</div>
 {_ASK_SCRIPT}
 {_REPO_SCRIPT}
 """
-    return _page(repo, body, user)
+    return _page(repo, body, user, active="repos")
