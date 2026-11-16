@@ -273,7 +273,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "cost": sum(r.cost_usd for r in mine),
         }
         attention = [r for r in latest_per_pr.values() if r.max_risk >= 7]
-        return HTMLResponse(render_home(cards, user, stats, attention))
+        open_findings = [f for r in latest_per_pr.values() for f in (r.findings or [])]
+        return HTMLResponse(
+            render_home(cards, user, stats, attention, activity=mine, open_findings=open_findings)
+        )
 
     @app.get("/overview", response_class=HTMLResponse)
     def overview(request: Request) -> Response:

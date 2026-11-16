@@ -12,7 +12,7 @@ import html
 import time
 
 from sentinel.costs import RunRow
-from sentinel.report import ui
+from sentinel.report import charts, ui
 from sentinel.report.dashboard import _LIVE_SCRIPT, _review_card, _risk_badge
 
 _EXTRA_CSS = """
@@ -291,7 +291,8 @@ def _page(
     title: str, body: str, user: dict | None, live_ts: float | None = None, active: str = ""
 ) -> str:
     live = _LIVE_SCRIPT % live_ts if live_ts is not None else ""
-    return ui.shell(title, f"<style>{_EXTRA_CSS}</style>{body}", user, active, live)
+    css = f"<style>{_EXTRA_CSS}{charts.CSS}</style>"
+    return ui.shell(title, css + body, user, active, live)
 
 
 def _when(iso: str) -> str:
@@ -334,9 +335,12 @@ def render_home(
     user: dict | None,
     stats: dict | None = None,
     attention: list[RunRow] | None = None,
+    activity: list[RunRow] | None = None,
+    open_findings: list[dict] | None = None,
 ) -> str:
     """repo_cards: [{repo, reviews, last_ts, last_risk, decisions}];
-    stats: {reviews, high, cost}; attention: recent high-risk reviews."""
+    stats: {reviews, high, cost}; attention: recent high-risk reviews;
+    activity: review rows for the chart; open_findings: latest review per PR."""
     stats = stats or {}
     first = (user or {}).get("login", "")
     cards = "".join(_repo_card(c) for c in repo_cards)
@@ -356,6 +360,13 @@ def render_home(
   <div class="stat"><div class="k">Spend</div><div class="v">${stats.get("cost", 0.0):.2f}</div>
     <div class="s"><a href="/overview">usage details →</a></div></div>
 </div>"""
+
+    panels = (
+        f'<div class="panels">{charts.activity(activity or [])}'
+        f"{charts.severity(open_findings or [])}</div>"
+        if repo_cards
+        else ""
+    )
 
     attn = ""
     if attention:
@@ -384,12 +395,14 @@ def render_home(
   <p class="lede">Every pull request on these repositories gets an automatic risk review.</p>
 </div></div>
 {tiles}
+{panels}
 {attn}
 <div class="toolbar"><h2>Repositories</h2>
   <input id="repo-filter" class="field" placeholder="Filter repositories…" autocomplete="off">
 </div>
 {grid if repo_cards else empty}
 {_HOME_SCRIPT}
+{charts.TIP_SCRIPT}
 """
     return _page(
         "Sentinel", body, user,

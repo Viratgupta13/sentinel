@@ -15,7 +15,7 @@ import html
 import time
 
 from sentinel.costs import RunRow
-from sentinel.report import ui
+from sentinel.report import charts, ui
 
 _CSS = ui.CSS
 _risk_badge = ui.risk_badge
@@ -104,6 +104,12 @@ _LANDING_CSS = """
 .sample .why { margin:14px 0 0; padding:10px 12px; border-left:2px solid var(--border-strong);
                background:var(--surface-2); color:var(--ink-2); font-size:13px; }
 .sample .why b { color:var(--ink); font-weight:600; }
+.how { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,560px); gap:56px;
+       align-items:center; padding:56px 0; border-top:1px solid var(--border); }
+.how h2.big { font-family:inherit; text-transform:none; letter-spacing:-.025em;
+              font-size:26px; line-height:1.15; color:var(--ink); font-weight:600;
+              margin:12px 0 0; }
+.how p { color:var(--ink-2); font-size:15px; margin:14px 0 0; max-width:420px; }
 .feats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
          border-top:1px solid var(--border); }
 .feat { padding:28px 28px 32px 0; }
@@ -115,6 +121,7 @@ _LANDING_CSS = """
              font-size:12.5px; font-family:var(--mono); }
 @media (max-width:860px) {
   .hero { grid-template-columns:1fr; gap:36px; padding:44px 0; }
+  .how { grid-template-columns:1fr; gap:24px; padding:40px 0; }
   .feats { grid-template-columns:1fr; }
   .feat, .feat + .feat { padding:22px 0; border-left:none; }
   .feat + .feat { border-top:1px solid var(--border); }
@@ -144,7 +151,7 @@ def render_landing() -> str:
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sentinel - PR risk review for your GitHub repos</title>{ui.FONTS}
-<style>{ui.CSS}{_LANDING_CSS}</style></head>
+<style>{ui.CSS}{charts.CSS}{_LANDING_CSS}</style></head>
 <body>
 <div class="land">
   <div class="land-top"><span class="brand">{ui.LOGO}Sentinel</span>
@@ -160,6 +167,14 @@ def render_landing() -> str:
     </div>
     {sample}
   </section>
+  <section class="how">
+    <div><div class="kicker">How a review works</div>
+      <h2 class="big">Only risky code gets the expensive review.</h2>
+      <p>A fast model scores every changed hunk. Only the few that look dangerous go to
+         the strong model, so reviews stay quick and cheap without skipping what
+         matters.</p></div>
+    {charts.funnel(14, 3, 2, title="Example: PR #482")}
+  </section>
   <div class="feats">
     <div class="feat"><div class="n">01</div><h3>Risk-scored reviews</h3>
       <p>A cheap pass over every change, and a deep review only where it matters. The
@@ -173,6 +188,7 @@ def render_landing() -> str:
   </div>
   <div class="land-foot">Sign in with GitHub → install the app on your repos → open a PR</div>
 </div>
+{charts.TIP_SCRIPT}
 </body></html>"""
 
 
@@ -199,7 +215,13 @@ def render_dashboard(
         <div class="s">{pct:.0f}% below baseline</div></div>
     </div>"""
 
-    reviews = [r for r in rows if r.command == "review"][:10]
+    all_reviews = [r for r in rows if r.command == "review"]
+    hunk_funnel = charts.funnel(
+        sum(r.total_hunks for r in all_reviews),
+        sum(r.skipped_hunks for r in all_reviews),
+        sum(r.deep_reviewed_hunks for r in all_reviews),
+    )
+    reviews = all_reviews[:10]
     review_cards = "".join(_review_card(r) for r in reviews) or (
         '<div class="card empty"><b>No reviews yet</b>Run <code>sentinel review</code> '
         "or open a PR on a connected repo.</div>"
@@ -238,6 +260,7 @@ def render_dashboard(
   <p class="lede">Tiered reviews · decision memory · cost ledger - updated {generated}</p>
 </div></div>
 {tiles}
+<div class="section">{hunk_funnel}</div>
 <div class="section"><div class="section-head"><h2>Recent reviews</h2></div>
 {review_cards}</div>
 {_memory_section(memory or [])}
@@ -252,4 +275,7 @@ def render_dashboard(
 <footer class="foot">Free-tier models price at $0; token columns carry the cost story.</footer>
 """
     live_js = _LIVE_SCRIPT % (rows[0].ts if rows else 0.0) if live else ""
-    return ui.shell("Sentinel dashboard", body, user, active="usage", extra=live_js)
+    body = f"<style>{charts.CSS}</style>{body}"
+    return ui.shell(
+        "Sentinel dashboard", body, user, active="usage", extra=live_js + charts.TIP_SCRIPT
+    )
