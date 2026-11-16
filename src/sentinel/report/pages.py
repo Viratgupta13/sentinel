@@ -17,86 +17,96 @@ from sentinel.report.dashboard import _LIVE_SCRIPT, _review_card, _risk_badge
 
 _EXTRA_CSS = """
 /* --- home --- */
-.toolbar { display:flex; gap:10px; align-items:center; margin:28px 0 12px; }
+.toolbar { display:flex; gap:10px; align-items:center; margin:34px 0 10px; }
 .toolbar h2 { flex:1; }
-.toolbar input { width:260px; }
-.repo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr));
-             gap:12px; }
-a.repo-card { display:flex; flex-direction:column; gap:12px; padding:16px 18px;
-              text-decoration:none; background:var(--surface); border:1px solid var(--border);
-              border-radius:14px; box-shadow:var(--shadow); min-width:0;
-              transition:border-color .15s, transform .15s, box-shadow .15s; }
-a.repo-card:hover { border-color:var(--border-strong); transform:translateY(-1px);
-                    box-shadow:var(--shadow-lg); }
-.rc-top { display:flex; align-items:center; gap:11px; min-width:0; }
-.mono-av { width:36px; height:36px; border-radius:10px; flex:none; display:grid;
-           place-items:center; font-weight:700; font-size:15px; color:var(--accent);
-           background:var(--accent-soft); text-transform:uppercase; }
-.rc-name { min-width:0; }
-.rc-name b { display:block; font-size:15px; font-weight:650; overflow:hidden;
-             text-overflow:ellipsis; white-space:nowrap; letter-spacing:-.01em; }
-.rc-name span { display:block; color:var(--ink-3); font-size:12.5px; }
-.rc-foot { display:flex; align-items:center; gap:10px; color:var(--ink-3);
-           font-size:12.5px; margin-top:auto; padding-top:12px;
-           border-top:1px solid var(--border); }
-.rc-foot .r { margin-left:auto; }
+.toolbar input { width:240px; font-size:13px; padding:6px 11px; }
+.repo-grid { border:1px solid var(--border); border-radius:6px; background:var(--surface); }
+.repo-head, a.repo-card { display:grid; align-items:center; gap:16px;
+                          grid-template-columns:minmax(0,1fr) 150px 90px 90px 80px;
+                          padding:11px 18px; }
+.repo-head { font-family:var(--mono); font-size:11px; letter-spacing:.07em;
+             text-transform:uppercase; color:var(--ink-3); padding-top:9px;
+             padding-bottom:9px; border-bottom:1px solid var(--border); }
+a.repo-card { text-decoration:none; min-width:0; }
+a.repo-card + a.repo-card { border-top:1px solid var(--border); }
+a.repo-card:hover { background:var(--hover); }
+a.repo-card:hover .rc-name b { text-decoration:underline; text-underline-offset:3px; }
+.rc-name { min-width:0; display:flex; align-items:baseline; gap:8px; }
+.rc-name b { font-size:14.5px; font-weight:500; overflow:hidden; text-overflow:ellipsis;
+             white-space:nowrap; }
+.rc-name span { color:var(--ink-3); font-size:12px; font-family:var(--mono);
+                white-space:nowrap; }
+.rc-col { font-family:var(--mono); font-size:12.5px; color:var(--ink-2);
+          font-variant-numeric:tabular-nums; white-space:nowrap; }
+.rc-col.dim { color:var(--ink-3); }
+.r-right { text-align:right; }
 .attn .row .t { font-size:14px; }
 
 /* --- repo page --- */
-.layout { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:20px;
-          align-items:start; margin-top:24px; }
+.layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:28px;
+          align-items:start; margin-top:30px; }
 .layout > div { min-width:0; }
 .layout .section:first-child { margin-top:0; }
-.side .card + .card { margin-top:14px; }
-.side h3 { font-size:14px; margin:0 0 6px; }
+.side { position:sticky; top:78px; }
+.side .card + .card { margin-top:12px; }
+.side h3 { font-family:var(--mono); font-size:11px; font-weight:600; letter-spacing:.08em;
+           text-transform:uppercase; color:var(--ink-2); margin:0 0 8px; }
 .side p { margin:0; color:var(--ink-2); font-size:13.5px; }
 .side .actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:14px; }
 .side .status { color:var(--ink-3); font-size:12.5px; }
-.kv { display:flex; justify-content:space-between; font-size:13.5px; padding:6px 0; }
+.kv { display:flex; justify-content:space-between; font-size:13.5px; padding:7px 0; }
 .kv + .kv { border-top:1px solid var(--border); }
 .kv span:first-child { color:var(--ink-2); }
-.sub .findings { padding-top:0; padding-left:124px; }
-.rows > .row > .badge, .rows > .row > .pill { min-width:92px; justify-content:center; }
+.kv b { font-family:var(--mono); font-weight:500; font-size:13px; }
+.sub .findings { padding-top:0; padding-left:136px; }
+.rows > .row > .risk, .rows > .row > .pill { min-width:108px; }
 
 /* --- ask --- */
-.ask { padding:18px 20px;
-       background:linear-gradient(180deg,var(--accent-soft),var(--surface) 70%); }
-.ask-head { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
-.ask-head .ic { width:30px; height:30px; border-radius:9px; display:grid; place-items:center;
-                background:var(--accent); color:var(--accent-ink); font-weight:700; }
-.ask-head p { margin:0; color:var(--ink-2); font-size:13px; }
+.ask { padding:16px 18px 14px; }
+.ask-head { display:flex; align-items:baseline; gap:12px; margin-bottom:10px;
+            flex-wrap:wrap; }
+.ask-head p { margin:0; color:var(--ink-3); font-size:13px; }
 .ask form { display:flex; gap:8px; }
-.ask input { flex:1; }
-.chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
-.chips a { font-size:12.5px; color:var(--ink-2); background:var(--surface);
-           border:1px solid var(--border); border-radius:999px; padding:4px 11px;
-           cursor:pointer; text-decoration:none; }
-.chips a:hover { color:var(--ink); border-color:var(--border-strong); }
-.chips a.ghost { border-style:dashed; }
-.qa { border-top:1px solid var(--border); margin-top:16px; padding-top:14px; }
-.qa .q { font-weight:650; font-size:14px; }
-.qa .a { font-size:14px; line-height:1.65; margin-top:8px; white-space:pre-wrap; }
-.qa .a code { background:var(--surface-2); border:1px solid var(--border);
-              border-radius:5px; padding:0 5px; }
-.qa .a sup a { color:var(--accent); text-decoration:none; font-weight:700; }
+.ask input { flex:1; font-family:var(--mono); font-size:13.5px; }
+.chips { display:flex; flex-wrap:wrap; gap:4px 16px; margin-top:10px; }
+.chips a { font-size:12.5px; color:var(--ink-3); cursor:pointer; text-decoration:none; }
+.chips a::before { content:"→ "; }
+.chips a:hover { color:var(--ink); }
+.chips a.ghost::before { content:""; }
+.qa { border-top:1px solid var(--border); margin-top:14px; padding-top:14px; }
+.qa .q { font-weight:600; font-size:14px; }
+.qa .q::before { content:"Q  "; font-family:var(--mono); color:var(--ink-3); }
+.qa .a { font-size:14px; line-height:1.7; margin-top:8px; white-space:pre-wrap;
+         max-width:72ch; }
+.qa .a code { background:var(--surface-2); border-radius:3px; padding:0 4px; }
+.qa .a sup a { color:var(--link); text-decoration:none; font-weight:600; }
 .qa .src { margin-top:10px; font-size:12.5px; color:var(--ink-3); line-height:1.9; }
-.qa .src a { color:var(--ink-2); font-family:var(--mono); font-size:12px;
-             text-decoration:none; background:var(--surface-2); border:1px solid var(--border);
-             border-radius:6px; padding:1px 6px; }
-.qa .src a:hover { color:var(--ink); }
+.qa .src a { color:var(--link); font-family:var(--mono); font-size:12px;
+             text-decoration:none; }
+.qa .src a:hover { text-decoration:underline; }
 .qa .err { color:var(--crit); font-size:13.5px; margin-top:6px; }
-.thinking { color:var(--ink-3); font-size:13.5px; margin-top:6px; }
+.thinking { color:var(--ink-3); font-size:13.5px; margin-top:6px; font-family:var(--mono); }
 
 .fresh { position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:30;
-         background:var(--ink); color:var(--bg); border-radius:999px; padding:9px 18px;
+         background:var(--ink); color:var(--bg); border-radius:5px; padding:9px 16px;
          font-size:13px; box-shadow:var(--shadow-lg); }
-.fresh a { color:inherit; font-weight:700; }
+.fresh a { color:inherit; font-weight:600; }
 
-@media (max-width: 900px) { .layout { grid-template-columns:1fr; } }
+@media (max-width: 900px) {
+  .layout { grid-template-columns:1fr; } .side { position:static; }
+  .repo-head, a.repo-card { grid-template-columns:minmax(0,1fr) 130px 70px; }
+  .c-dec, .c-when { display:none; }
+}
 @media (max-width: 760px) {
   .toolbar input { width:100%; } .toolbar { flex-wrap:wrap; }
-  .sub .findings { padding-left:16px; }
-  .rows > .row > .badge, .rows > .row > .pill { min-width:0; }
+  .sub .findings { padding-left:14px; }
+  .rows > .row > .risk, .rows > .row > .pill { min-width:0; }
+  .rows > .row:has(> .risk, > .pill) { flex-wrap:wrap; row-gap:6px; }
+  .rows > .row:has(> .risk, > .pill) > .grow { order:3; flex-basis:100%; }
+  .repo-head { display:none; }
+  a.repo-card { grid-template-columns:minmax(0,1fr) auto; padding:12px 14px; }
+  .c-rev { display:none; }
+  .rc-name { flex-direction:column; gap:0; }
 }
 """
 
@@ -264,12 +274,12 @@ def _ask_panel(repo: str) -> str:
         f'<a data-q="{html.escape(q)}">{html.escape(q)}</a>' for q in _SUGGESTIONS
     )
     return f"""<div class="card ask">
-  <div class="ask-head"><div class="ic">?</div><div><h2>Ask this repo</h2>
-    <p>Architecture, design decisions, where something lives - answers cite exact lines.</p>
-  </div></div>
+  <div class="ask-head"><h2>Ask this repo</h2>
+    <p>Architecture, design decisions, where something lives. Answers cite exact lines.</p>
+  </div>
   <form id="ask-form" data-api="/api/repo/{html.escape(repo)}/ask">
     <input id="ask-input" class="field" maxlength="600" autocomplete="off"
-           placeholder="e.g. How is authentication handled?">
+           placeholder="How is authentication handled?">
     <button class="btn primary" type="submit">Ask</button>
   </form>
   <div class="chips">{chips}<a id="ask-reindex" class="ghost">↻ re-read latest code</a></div>
@@ -299,23 +309,23 @@ def _split(repo: str) -> tuple[str, str]:
 
 def _repo_card(c: dict) -> str:
     owner, name = _split(c["repo"])
-    badge = (
+    risk = (
         _risk_badge(c["last_risk"])
         if c["reviews"]
         else '<span class="pill">no reviews yet</span>'
     )
     n, d = c["reviews"], c.get("decisions", 0)
-    sub = [owner] + ([f"{d} decision{'s' if d != 1 else ''}"] if d else [])
-    right = [f"{n} review{'s' if n != 1 else ''}"]
-    if c.get("last_ts"):
-        right.append(ui.ago(c["last_ts"]))
     return (
         f'<a class="repo-card" href="/repo/{html.escape(c["repo"])}" '
         f'data-name="{html.escape(c["repo"].lower())}" title="{html.escape(c["repo"])}">'
-        f'<div class="rc-top"><div class="mono-av">{html.escape(name[:1])}</div>'
-        f'<div class="rc-name"><b>{html.escape(name)}</b>'
-        f'<span>{html.escape(" · ".join(sub))}</span></div></div>'
-        f'<div class="rc-foot">{badge}<span class="r">{" · ".join(right)}</span></div></a>'
+        f'<span class="rc-name"><b>{html.escape(name)}</b>'
+        f"<span>{html.escape(owner)}</span></span>"
+        f"<span>{risk}</span>"
+        f'<span class="rc-col c-rev{" dim" if not n else ""}">'
+        f"{n} review{'s' if n != 1 else ''}</span>"
+        f'<span class="rc-col c-dec dim">{d or "-"}</span>'
+        f'<span class="rc-col c-when dim r-right">{ui.ago(c.get("last_ts", 0)) or "-"}</span>'
+        f"</a>"
     )
 
 
@@ -330,6 +340,12 @@ def render_home(
     stats = stats or {}
     first = (user or {}).get("login", "")
     cards = "".join(_repo_card(c) for c in repo_cards)
+    grid = (
+        '<div class="repo-grid"><div class="repo-head"><span>Repository</span>'
+        '<span>Last review</span><span class="c-rev">Reviews</span>'
+        '<span class="c-dec">Decisions</span><span class="c-when r-right">Activity</span>'
+        f"</div>{cards}</div>"
+    )
     tiles = f"""<div class="stats">
   <div class="stat"><div class="k">Repositories</div><div class="v">{len(repo_cards)}</div>
     <div class="s">connected through the GitHub App</div></div>
@@ -338,7 +354,7 @@ def render_home(
   <div class="stat hot"><div class="k">High-severity findings</div>
     <div class="v">{stats.get("high", 0)}</div><div class="s">across all reviews</div></div>
   <div class="stat"><div class="k">Spend</div><div class="v">${stats.get("cost", 0.0):.2f}</div>
-    <div class="s"><a href="/overview" class="muted">usage details →</a></div></div>
+    <div class="s"><a href="/overview">usage details →</a></div></div>
 </div>"""
 
     attn = ""
@@ -350,12 +366,12 @@ def render_home(
             rows.append(
                 f'<div class="row">{_risk_badge(r.max_risk)}<div class="grow">'
                 f'<a class="t" href="/repo/{html.escape(r.repo)}">{html.escape(name)}'
-                f" #{r.pr_number}</a>"
+                f' <span class="num">#{r.pr_number}</span></a>'
                 f'<span class="meta">{html.escape(top)}</span></div>'
                 f'<span class="end meta">{ui.ago(r.ts)}</span></div>'
             )
         attn = f"""<div class="section"><div class="section-head"><h2>Needs attention</h2>
-<span class="count">high-risk pull requests</span></div>
+<span class="count">risk ≥ 7 · latest review per PR</span></div>
 <div class="card rows attn">{"".join(rows)}</div></div>"""
 
     empty = (
@@ -365,15 +381,14 @@ def render_home(
     body = f"""
 <div class="page-head"><div class="grow">
   <h1>Welcome back{", " + html.escape(first) if first else ""}</h1>
-  <p class="lede">Every pull request on these repos gets an automatic risk review.</p>
+  <p class="lede">Every pull request on these repositories gets an automatic risk review.</p>
 </div></div>
 {tiles}
 {attn}
 <div class="toolbar"><h2>Repositories</h2>
   <input id="repo-filter" class="field" placeholder="Filter repositories…" autocomplete="off">
 </div>
-<div class="repo-grid">{cards}</div>
-{"" if repo_cards else empty}
+{grid if repo_cards else empty}
 {_HOME_SCRIPT}
 """
     return _page(
@@ -411,7 +426,8 @@ def render_repo_page(
         head = (
             f'<div class="row">{badge}<div class="grow">'
             f'<a class="t" href="{html.escape(pr["html_url"])}">{html.escape(pr["title"])}</a>'
-            f'<span class="meta">#{pr["number"]} · {html.escape(pr["author"])} · '
+            f'<span class="meta"><span class="num">#{pr["number"]}</span> · '
+            f'{html.escape(pr["author"])} · '
             f'{_when(pr["updated_at"])}</span></div>'
             f'<div class="end"><button class="btn sm" data-review="{pr["number"]}">'
             f"{label}</button></div></div>"
@@ -499,7 +515,7 @@ def render_repo_page(
     body = f"""
 <div id="repo-actions" data-api="/api/repo/{html.escape(repo)}"
      data-latest="{latest_ts}"></div>
-<div class="crumbs"><a href="/dashboard">&larr; All repositories</a></div>
+<div class="crumbs"><a href="/dashboard">repositories</a> / {html.escape(owner)}</div>
 <div class="page-head"><div class="grow">
   <h1><span class="owner">{html.escape(owner)} / </span>{html.escape(name)}</h1>
   <p class="lede">Automatic risk review is on for every pull request.</p></div>
@@ -516,7 +532,7 @@ def render_repo_page(
       <span class="count">{len(issues or [])}</span></div>{issues_block}</div>
   </div>
   <aside class="side">
-    <div class="card pad">{facts}</div>
+    <div class="card pad"><h3>Overview</h3>{facts}</div>
     <div class="card pad"><h3>Decision memory</h3><p>{mem_text}</p>
       <div class="actions"><button class="btn sm" id="mem-build">{mem_label}</button>
       <span class="status" id="mem-status"></span></div></div>

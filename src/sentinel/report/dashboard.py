@@ -76,38 +76,70 @@ _LIVE_SCRIPT = """<script>
 </script>"""
 
 _LANDING_CSS = """
-.land { max-width:1040px; margin:0 auto; padding:0 20px; }
-.land-top { display:flex; align-items:center; height:64px; }
+.land { max-width:1120px; margin:0 auto; padding:0 24px; }
+.land-top { display:flex; align-items:center; height:60px; border-bottom:1px solid var(--border); }
 .land-top .brand { flex:1; }
-.hero { text-align:center; padding:72px 0 40px; }
-.eyebrow { display:inline-flex; align-items:center; gap:8px; font-size:12.5px;
-           font-weight:600; color:var(--accent); background:var(--accent-soft);
-           border-radius:999px; padding:4px 12px; }
-.hero h1 { font-size:clamp(32px,5.4vw,54px); letter-spacing:-.04em; line-height:1.06;
-           margin:20px auto 0; max-width:780px; }
-.hero h1 em { font-style:normal; background:linear-gradient(90deg,var(--accent),#c45cf2);
-              -webkit-background-clip:text; background-clip:text; color:transparent; }
-.hero p { color:var(--ink-2); font-size:17px; max-width:600px; margin:18px auto 0; }
-.cta { margin-top:30px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
-.cta .btn { font-size:15px; padding:11px 20px; border-radius:11px; }
-.feats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px;
-         margin:36px 0 22px; }
-.feat { padding:22px; }
-.feat .ic { width:38px; height:38px; border-radius:10px; display:grid; place-items:center;
-            background:var(--accent-soft); color:var(--accent); font-size:18px; }
-.feat h3 { font-size:15.5px; margin:14px 0 6px; letter-spacing:-.01em; }
+.hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,520px); gap:56px;
+        align-items:center; padding:72px 0 64px; }
+.kicker { font-family:var(--mono); font-size:12px; color:var(--ink-3); letter-spacing:.06em;
+          text-transform:uppercase; }
+.hero h1 { font-size:clamp(34px,4.6vw,50px); letter-spacing:-.035em; line-height:1.05;
+           font-weight:600; margin:16px 0 0; }
+.hero p { color:var(--ink-2); font-size:16.5px; line-height:1.6; max-width:470px;
+          margin:20px 0 0; }
+.cta { margin-top:30px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+.cta .btn { font-size:14.5px; padding:10px 18px; }
+.cta span { color:var(--ink-3); font-size:13px; }
+.sample { font-size:13.5px; overflow:hidden; }
+.sample-top { display:flex; align-items:center; gap:10px; padding:10px 16px;
+              border-bottom:1px solid var(--border); font-family:var(--mono);
+              font-size:12px; color:var(--ink-3); }
+.sample-top b { color:var(--ink); font-weight:500; }
+.sample-body { padding:16px; }
+.sample-body .line { display:flex; align-items:center; gap:12px; }
+.sample-body .line + .line { margin-top:10px; }
+.sample .findings { padding:12px 0 0; }
+.sample .findings li { align-items:flex-start; }
+.sample .findings li .ft { white-space:normal; }
+.sample .why { margin:14px 0 0; padding:10px 12px; border-left:2px solid var(--border-strong);
+               background:var(--surface-2); color:var(--ink-2); font-size:13px; }
+.sample .why b { color:var(--ink); font-weight:600; }
+.feats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr));
+         border-top:1px solid var(--border); }
+.feat { padding:28px 28px 32px 0; }
+.feat + .feat { padding-left:28px; border-left:1px solid var(--border); }
+.feat .n { font-family:var(--mono); font-size:12px; color:var(--ink-3); }
+.feat h3 { font-size:16px; margin:10px 0 6px; font-weight:600; letter-spacing:-.01em; }
 .feat p { margin:0; color:var(--ink-2); font-size:14px; }
-.steps { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; color:var(--ink-2);
-         font-size:13.5px; padding-bottom:56px; }
-.steps span { background:var(--surface); border:1px solid var(--border); border-radius:999px;
-              padding:6px 14px; }
-.steps b { color:var(--accent); margin-right:6px; }
-@media (max-width:760px) { .feats { grid-template-columns:1fr; } .hero { padding-top:40px; } }
+.land-foot { border-top:1px solid var(--border); padding:20px 0 40px; color:var(--ink-3);
+             font-size:12.5px; font-family:var(--mono); }
+@media (max-width:860px) {
+  .hero { grid-template-columns:1fr; gap:36px; padding:44px 0; }
+  .feats { grid-template-columns:1fr; }
+  .feat, .feat + .feat { padding:22px 0; border-left:none; }
+  .feat + .feat { border-top:1px solid var(--border); }
+}
+@media (max-width:760px) { .land { padding:0 16px; } }
 """
 
 
 def render_landing() -> str:
     """Signed-out home page."""
+    sample = f"""<div class="card sample" aria-label="Example Sentinel review">
+  <div class="sample-top"><b>acme/payments</b> #482 · Retry failed charges automatically</div>
+  <div class="sample-body">
+    <div class="line">{ui.risk_badge(9)}<span class="muted">2 of 14 hunks needed a deep
+      review</span></div>
+    <ul class="findings">
+      <li><span class="sev high">HIGH</span><span class="ft">Retry loop can charge a
+        card twice if the provider times out after capture</span></li>
+      <li><span class="sev medium">MED</span><span class="ft">Idempotency key is built from
+        the timestamp, not the order id</span></li>
+    </ul>
+    <div class="why"><b>Undoes a past decision.</b> PR #311 removed charge retries after
+      the March double-billing incident.</div>
+  </div>
+</div>"""
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -118,28 +150,28 @@ def render_landing() -> str:
   <div class="land-top"><span class="brand">{ui.LOGO}Sentinel</span>
     <a class="btn sm" href="/login">Sign in</a></div>
   <section class="hero">
-    <span class="eyebrow">AI code review · free to try</span>
-    <h1>Know which pull requests can <em>hurt you</em> before you merge</h1>
-    <p>Connect your GitHub account. Sentinel risk-scores every pull request,
-       remembers your team's design decisions, and answers questions about any
-       of your repos - with links to the exact lines.</p>
-    <div class="cta"><a class="btn primary" href="/login">{ui.GITHUB_ICON}Sign in with GitHub</a>
+    <div>
+      <div class="kicker">Pull request risk review</div>
+      <h1>Know which pull requests can hurt you before you merge.</h1>
+      <p>Sentinel scores every pull request on your GitHub repos, remembers why your
+         team made past decisions, and tells you when a change quietly undoes one.</p>
+      <div class="cta"><a class="btn primary" href="/login">{ui.GITHUB_ICON}Sign in with
+        GitHub</a><span>Free · installs as a GitHub App</span></div>
     </div>
+    {sample}
   </section>
   <div class="feats">
-    <div class="card feat"><div class="ic">▲</div><h3>Risk-scored reviews</h3>
-      <p>Cheap triage on every change, a deep review only where it matters. Findings land
-      as a PR comment and on your dashboard.</p></div>
-    <div class="card feat"><div class="ic">?</div><h3>Ask any repo</h3>
-      <p>"How does auth work?" "Why is this built this way?" Cited answers that open the
-      exact file and lines on GitHub.</p></div>
-    <div class="card feat"><div class="ic">◆</div><h3>Remembers decisions</h3>
-      <p>Mines merged PRs for the team's decisions and flags changes that quietly undo
-      them.</p></div>
+    <div class="feat"><div class="n">01</div><h3>Risk-scored reviews</h3>
+      <p>A cheap pass over every change, and a deep review only where it matters. The
+      result lands as a PR comment and on your dashboard.</p></div>
+    <div class="feat"><div class="n">02</div><h3>Ask any repo</h3>
+      <p>"How does auth work?" "Why is this built this way?" Answers link to the exact
+      file and lines on GitHub.</p></div>
+    <div class="feat"><div class="n">03</div><h3>Remembers decisions</h3>
+      <p>Reads merged PRs for the team's decisions and their reasons, then flags changes
+      that go against them.</p></div>
   </div>
-  <div class="steps"><span><b>1</b>Sign in with GitHub</span>
-    <span><b>2</b>Install the app on your repos</span>
-    <span><b>3</b>Open a PR - the review appears</span></div>
+  <div class="land-foot">Sign in with GitHub → install the app on your repos → open a PR</div>
 </div>
 </body></html>"""
 
