@@ -30,11 +30,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sentinel.ask.answer import answer_question
 from sentinel.ask.index import RepoIndex, index_db_path
 from sentinel.config import Settings, load_settings
-from sentinel.costs import CostHistory, costs_db_path, summarize
+from sentinel.costs import CostHistory, summarize
+from sentinel.db import location as db_location
 from sentinel.github.client import GitHubClient
 from sentinel.hub import oauth, sessions
 from sentinel.hub.appauth import InstallationTokens, load_private_key
-from sentinel.hub.store import HubStore, hub_db_path
+from sentinel.hub.store import HubStore
 from sentinel.llm import SentinelLLMError
 from sentinel.memory.store import MemoryStore, all_repo_stats, db_path_for
 from sentinel.models import ReviewReport
@@ -71,7 +72,7 @@ def _run_review(pr_url: str, settings: Settings) -> ReviewReport | None:
         return None
 
     try:
-        history = CostHistory(costs_db_path(settings.memory_home))
+        history = CostHistory(db_location(settings, "costs.db"))
         try:
             history.record_report(report)
         finally:
@@ -103,7 +104,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     def _store() -> HubStore:
-        return HubStore(hub_db_path(settings.memory_home))
+        return HubStore(db_location(settings, "hub.db"))
 
     def _current_user(request: Request) -> dict | None:
         if not settings.login_enabled:
@@ -134,7 +135,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             store.close()
 
     def _dashboard_data(user: dict | None) -> str:
-        history = CostHistory(costs_db_path(settings.memory_home))
+        history = CostHistory(db_location(settings, "costs.db"))
         try:
             rows = history.rows()
         finally:
@@ -175,7 +176,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return HTMLResponse(_dashboard_data(user))
 
         repos = sorted(_user_repos(user))
-        history = CostHistory(costs_db_path(settings.memory_home))
+        history = CostHistory(db_location(settings, "costs.db"))
         try:
             rows = [r for r in history.rows() if r.command == "review"]
         finally:
@@ -250,7 +251,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 fetch_error = fetch_error or str(e)[:200]
             log.warning("live issue fetch failed for %s: %s", repo, e)
 
-        history = CostHistory(costs_db_path(settings.memory_home))
+        history = CostHistory(db_location(settings, "costs.db"))
         try:
             reviews = [r for r in history.rows() if r.command == "review" and r.repo == repo]
         finally:
@@ -322,7 +323,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def api_latest(request: Request) -> Response:
         if settings.login_enabled and not _current_user(request):
             return JSONResponse({"error": "not signed in"}, status_code=401)
-        history = CostHistory(costs_db_path(settings.memory_home))
+        history = CostHistory(db_location(settings, "costs.db"))
         try:
             rows = history.rows(limit=1)
         finally:

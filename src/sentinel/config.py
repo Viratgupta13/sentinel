@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # --- Phase 2: decision memory ---
     # Where per-repo memory DBs live (expanded with ~).
     memory_home: str = "~/.sentinel"
+    # Postgres URL for review history + the tenant store (e.g. free Neon).
+    # Unset => SQLite files under memory_home (lost on ephemeral-disk hosts).
+    database_url: str = ""
     # How many merged PRs `sentinel memory build` harvests by default.
     harvest_limit: int = 200
     # Max review comments per PR fed to the extractor.

@@ -23,6 +23,7 @@ server = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "PyJWT[crypto]>=2.8",   # GitHub App JWTs (Phase 6 hub)
+    "psycopg[binary]>=3.1", # optional Postgres via SENTINEL_DATABASE_URL
 ]
 dev = [
     "pytest>=8.0",
@@ -31,6 +32,7 @@ dev = [
     "fastapi>=0.115",   # server tests
     "uvicorn>=0.30",
     "PyJWT[crypto]>=2.8",
+    "psycopg[binary]>=3.1",
 ]
 
 [build-system]

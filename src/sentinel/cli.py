@@ -43,10 +43,11 @@ def _key_hint(settings) -> str:
 
 def _record_run(settings, report) -> None:
     """Append this run to the cost history; never let bookkeeping break a review."""
-    from sentinel.costs import CostHistory, costs_db_path
+    from sentinel.costs import CostHistory
+    from sentinel.db import location as db_location
 
     try:
-        history = CostHistory(costs_db_path(settings.memory_home))
+        history = CostHistory(db_location(settings, "costs.db"))
         try:
             history.record_report(report)
         finally:
@@ -181,9 +182,10 @@ def memory_build(
     finally:
         store.close()
 
-    from sentinel.costs import CostHistory, costs_db_path
+    from sentinel.costs import CostHistory
+    from sentinel.db import location as db_location
 
-    history = CostHistory(costs_db_path(settings.memory_home))
+    history = CostHistory(db_location(settings, "costs.db"))
     try:
         history.record_harvest(
             repo,
@@ -270,10 +272,11 @@ def costs(
     """Show the recorded cost history across all runs (and build the dashboard)."""
     from rich.table import Table
 
-    from sentinel.costs import CostHistory, costs_db_path
+    from sentinel.costs import CostHistory
+    from sentinel.db import location as db_location
 
     settings = load_settings()
-    db = costs_db_path(settings.memory_home)
+    db = db_location(settings, "costs.db")
     history = CostHistory(db)
     try:
         rows = history.rows(limit=10_000)

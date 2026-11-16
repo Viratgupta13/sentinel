@@ -62,6 +62,20 @@ SENTINEL_GITHUB_APP_PRIVATE_KEY=<paste the .pem contents>
 
 Save; the service redeploys. Done.
 
+## 4. Keep history across redeploys (free Postgres)
+
+Render's free disk is wiped on every deploy, so review history and the user
+list would reset. Point Sentinel at a free Postgres instead:
+
+1. Sign up at [neon.tech](https://neon.tech) (free plan, no card) and create a
+   project in the region closest to your Render service (Oregon -> `AWS US West`).
+2. Copy the **connection string** (`postgresql://...?sslmode=require`).
+3. In Render > your service > **Environment**, add
+   `SENTINEL_DATABASE_URL` = that string, and save.
+
+Sentinel creates its tables on first start. The repo code index and decision
+memory stay on local SQLite - they are caches that rebuild on demand.
+
 ## Using it
 
 1. Open `https://<your-service>.onrender.com` > **Sign in with GitHub**.

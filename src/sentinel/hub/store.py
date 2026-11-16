@@ -1,36 +1,38 @@
 """Tenant store: users, app installations, and which repos each covers.
 
-One SQLite DB at <memory_home>/hub.db. Written from two directions:
+SQLite at <memory_home>/hub.db, or Postgres when SENTINEL_DATABASE_URL is
+set (see sentinel.db). Written from two directions:
 the OAuth callback (who signed in, which installations they can see) and
 webhook `installation` events (installed/uninstalled, repos added/removed).
 """
 
 from __future__ import annotations
 
-import sqlite3
 import time
 from pathlib import Path
 
+from sentinel.db import DB
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    github_id INTEGER PRIMARY KEY,
+    github_id BIGINT PRIMARY KEY,
     login TEXT NOT NULL,
     name TEXT DEFAULT '',
     avatar_url TEXT DEFAULT '',
-    created_ts REAL NOT NULL
+    created_ts DOUBLE PRECISION NOT NULL
 );
 CREATE TABLE IF NOT EXISTS installations (
-    installation_id INTEGER PRIMARY KEY,
+    installation_id BIGINT PRIMARY KEY,
     account_login TEXT NOT NULL,
-    created_ts REAL NOT NULL
+    created_ts DOUBLE PRECISION NOT NULL
 );
 CREATE TABLE IF NOT EXISTS user_installations (
-    user_github_id INTEGER NOT NULL,
-    installation_id INTEGER NOT NULL,
+    user_github_id BIGINT NOT NULL,
+    installation_id BIGINT NOT NULL,
     UNIQUE(user_github_id, installation_id)
 );
 CREATE TABLE IF NOT EXISTS installation_repos (
-    installation_id INTEGER NOT NULL,
+    installation_id BIGINT NOT NULL,
     repo TEXT NOT NULL,              -- owner/name
     UNIQUE(installation_id, repo)
 );
@@ -44,9 +46,9 @@ def hub_db_path(memory_home: str) -> Path:
 
 
 class HubStore:
-    def __init__(self, db_path: Path) -> None:
-        self._conn = sqlite3.connect(db_path)
-        self._conn.executescript(_SCHEMA)
+    def __init__(self, target: str | Path) -> None:
+        self._conn = DB(target)
+        self._conn.script(_SCHEMA)
         self._conn.commit()
 
     def close(self) -> None:
@@ -66,8 +68,8 @@ class HubStore:
 
     def link_user(self, github_id: int, installation_ids: list[int]) -> None:
         self._conn.executemany(
-            "INSERT OR IGNORE INTO user_installations (user_github_id, installation_id)"
-            " VALUES (?,?)",
+            "INSERT INTO user_installations (user_github_id, installation_id)"
+            " VALUES (?,?) ON CONFLICT DO NOTHING",
             [(github_id, iid) for iid in installation_ids],
         )
         self._conn.commit()
@@ -98,7 +100,8 @@ class HubStore:
 
     def add_repos(self, installation_id: int, repos: list[str]) -> None:
         self._conn.executemany(
-            "INSERT OR IGNORE INTO installation_repos (installation_id, repo) VALUES (?,?)",
+            "INSERT INTO installation_repos (installation_id, repo) VALUES (?,?)"
+            " ON CONFLICT DO NOTHING",
             [(installation_id, r) for r in repos],
         )
         self._conn.commit()

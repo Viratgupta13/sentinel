@@ -1,6 +1,7 @@
 """Phase 3: persistent cost history - every run's ledger, queryable + dashboard.
 
-One SQLite DB at <memory_home>/costs.db. `sentinel review` and
+One `runs` table - SQLite at <memory_home>/costs.db, or Postgres when
+SENTINEL_DATABASE_URL is set (see sentinel.db). `sentinel review` and
 `sentinel memory build` append a row per run; `sentinel costs` aggregates and
 can render a self-contained HTML dashboard (no external assets).
 """
@@ -13,28 +14,31 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from sentinel.db import DB
 from sentinel.models import ReviewReport
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
-    id INTEGER PRIMARY KEY,
-    ts REAL NOT NULL,
+    id {pk},
+    ts DOUBLE PRECISION NOT NULL,
     command TEXT NOT NULL,          -- review | memory-build
     repo TEXT NOT NULL,             -- owner/name or local/diff
     pr_number INTEGER,
     total_hunks INTEGER DEFAULT 0,
     skipped_hunks INTEGER DEFAULT 0,
     deep_reviewed_hunks INTEGER DEFAULT 0,
-    cost_usd REAL NOT NULL,
-    naive_cost_usd REAL DEFAULT 0,
+    cost_usd DOUBLE PRECISION NOT NULL,
+    naive_cost_usd DOUBLE PRECISION DEFAULT 0,
     models_json TEXT NOT NULL,      -- [{model, calls, in, out, cache_read, usd}]
     max_risk INTEGER DEFAULT 0,
     findings_json TEXT DEFAULT '[]' -- [{severity, title, file}]
 );
 """
 
+_PK = {"sqlite": "INTEGER PRIMARY KEY", "postgres": "BIGSERIAL PRIMARY KEY"}
+
 # Columns added after the first release; applied idempotently on open so
-# existing DBs upgrade in place.
+# existing SQLite DBs upgrade in place (Postgres tables start with them).
 _MIGRATIONS = (
     "ALTER TABLE runs ADD COLUMN max_risk INTEGER DEFAULT 0",
     "ALTER TABLE runs ADD COLUMN findings_json TEXT DEFAULT '[]'",
@@ -64,14 +68,15 @@ def costs_db_path(memory_home: str) -> Path:
 
 
 class CostHistory:
-    def __init__(self, db_path: Path) -> None:
-        self._conn = sqlite3.connect(db_path)
-        self._conn.executescript(_SCHEMA)
-        for migration in _MIGRATIONS:
-            try:
-                self._conn.execute(migration)
-            except sqlite3.OperationalError:
-                pass  # column already exists
+    def __init__(self, target: str | Path) -> None:
+        self._conn = DB(target)
+        self._conn.script(_SCHEMA.replace("{pk}", _PK[self._conn.dialect]))
+        if self._conn.dialect == "sqlite":
+            for migration in _MIGRATIONS:
+                try:
+                    self._conn.execute(migration)
+                except sqlite3.OperationalError:
+                    pass  # column already exists
         self._conn.commit()
 
     def close(self) -> None:

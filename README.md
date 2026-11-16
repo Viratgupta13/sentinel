@@ -119,11 +119,15 @@ deploy guide - Render free tier works):
   and comments post as the app
 - `/dashboard` is per-user (only repos your installations cover) and
   **live-updates** as new PRs are reviewed
+- set `SENTINEL_DATABASE_URL` (free Neon Postgres) and review history +
+  users live in Postgres, surviving redeploys on ephemeral-disk hosts;
+  unset, everything stays in local SQLite
 
 ## Development
 
 ```bash
 pytest                 # unit + wiring tests (no API key needed)
+SENTINEL_TEST_DATABASE_URL=postgresql://localhost/scratch pytest tests/test_db.py  # + Postgres
 ruff check src tests
 docker build -t sentinel . && docker run sentinel version
 ```
@@ -159,3 +163,7 @@ docker build -t sentinel . && docker run sentinel version
   implementation), merged with decision memory, and answered with numbered
   citations that link to exact GitHub line ranges / source PRs. Answers in
   the asker's language (Hinglish stays Hinglish)
+- [x] **Phase 7c - durable storage**: optional Postgres backend
+  (`SENTINEL_DATABASE_URL`) for review history and the tenant store; one
+  shared autocommit connection with reconnect-on-drop, the same store code
+  on both backends, tested against SQLite and a real Postgres

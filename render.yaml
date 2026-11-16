@@ -35,3 +35,6 @@ services:
         sync: false
       - key: SENTINEL_SESSION_SECRET
         generateValue: true
+      # Free Neon Postgres URL; keeps review history across redeploys.
+      - key: SENTINEL_DATABASE_URL
+        sync: false
