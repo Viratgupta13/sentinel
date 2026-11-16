@@ -273,6 +273,15 @@ _HOME_SCRIPT = """<script>
 })();
 </script>"""
 
+# The server runs on UTC; show the viewer's own date.
+_TODAY_SCRIPT = """<script>
+(function () {
+  var el = document.getElementById("today");
+  if (el) el.textContent = new Date().toLocaleDateString(undefined,
+    {weekday: "long", month: "short", day: "numeric"});
+})();
+</script>"""
+
 _SUGGESTIONS = (
     "What does this repo do and how is it structured?",
     "How does data flow from a request to the database?",
@@ -417,7 +426,7 @@ def render_home(
     )
     body = f"""
 <div class="page-head home-head"><div class="grow">
-  <div class="kicker">{time.strftime("%A, %b %d")}</div>
+  <div class="kicker" id="today">{time.strftime("%A, %b %d")}</div>
   <h1>Welcome back{", " + html.escape(first) if first else ""}</h1>
   <p class="lede">Every pull request on these repositories gets an automatic risk review.</p>
   {glance}
@@ -430,6 +439,7 @@ def render_home(
 </div>
 {grid if repo_cards else empty}
 {_HOME_SCRIPT}
+{_TODAY_SCRIPT}
 {charts.TIP_SCRIPT}
 """
     return _page(
