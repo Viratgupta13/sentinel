@@ -17,6 +17,16 @@ from sentinel.report.dashboard import _LIVE_SCRIPT, _review_card, _risk_badge
 
 _EXTRA_CSS = """
 /* --- home --- */
+.home-head { align-items:center; gap:32px; }
+.home-head .kicker { font-family:var(--mono); font-size:11.5px; color:var(--ink-3);
+                     letter-spacing:.07em; text-transform:uppercase; margin-bottom:10px; }
+.home-head h1 { font-size:34px; }
+.glance { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+.glance span { font-size:12.5px; color:var(--ink-2); border:1px solid var(--border);
+               background:var(--surface); border-radius:999px; padding:3px 11px; }
+.glance .g { font-weight:500; }
+.glance .bad { color:var(--crit); border-color:var(--crit-line); background:var(--crit-soft); }
+.glance .ok { color:var(--good); border-color:var(--good-line); background:var(--good-soft); }
 .toolbar { display:flex; gap:10px; align-items:center; margin:34px 0 10px; }
 .toolbar h2 { flex:1; }
 .toolbar input { width:240px; font-size:13px; padding:6px 11px; }
@@ -98,6 +108,7 @@ a.repo-card:hover .rc-name b { text-decoration:underline; text-underline-offset:
   .c-dec, .c-when { display:none; }
 }
 @media (max-width: 760px) {
+  .home-head h1 { font-size:26px; }
   .toolbar input { width:100%; } .toolbar { flex-wrap:wrap; }
   .sub .findings { padding-left:14px; }
   .rows > .row > .risk, .rows > .row > .pill { min-width:0; }
@@ -389,14 +400,27 @@ def render_home(
 <span class="count">risk ≥ 7 · latest review per PR</span></div>
 <div class="card rows attn">{"".join(rows)}</div></div>"""
 
+    hot = len(attention or [])
+    last_ts = max((c["last_ts"] for c in repo_cards), default=0)
+    if hot:
+        headline = f"{hot} PR needs attention" if hot == 1 else f"{hot} PRs need attention"
+    else:
+        headline = "All clear - nothing high-risk"
+    bits = [f'<span class="g {"bad" if hot else "ok"}">{headline}</span>']
+    if last_ts:
+        bits.append(f"<span>last review {ui.ago(last_ts)}</span>")
+    glance = f'<div class="glance">{"".join(bits)}</div>' if repo_cards else ""
+
     empty = (
         '<div class="card empty"><b>No repositories yet</b>Install the Sentinel GitHub App '
         "on a repository and it will show up here.</div>"
     )
     body = f"""
-<div class="page-head"><div class="grow">
+<div class="page-head home-head"><div class="grow">
+  <div class="kicker">{time.strftime("%A, %b %d")}</div>
   <h1>Welcome back{", " + html.escape(first) if first else ""}</h1>
   <p class="lede">Every pull request on these repositories gets an automatic risk review.</p>
+  {glance}
 </div>{radar}</div>
 {tiles}
 {panels}

@@ -79,6 +79,7 @@ _LANDING_CSS = """
 .land { max-width:1120px; margin:0 auto; padding:0 24px; }
 .land-top { display:flex; align-items:center; height:60px; border-bottom:1px solid var(--border); }
 .land-top .brand { flex:1; }
+.land-top .theme-btn { margin-right:10px; }
 .hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,520px); gap:56px;
         align-items:center; padding:72px 0 64px; }
 .kicker { font-family:var(--mono); font-size:12px; color:var(--ink-3); letter-spacing:.06em;
@@ -196,12 +197,12 @@ def render_landing() -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sentinel - PR risk review for your GitHub repos</title>{ui.FONTS}
+<title>Sentinel - PR risk review for your GitHub repos</title>{ui.THEME_HEAD}{ui.FONTS}
 <style>{ui.CSS}{charts.CSS}{_LANDING_CSS}</style></head>
 <body>
 <div class="land">
   <div class="land-top"><span class="brand">{ui.LOGO}Sentinel</span>
-    <a class="btn sm" href="/login">Sign in</a></div>
+    {ui.THEME_BUTTON}<a class="btn sm" href="/login">Sign in</a></div>
   <section class="hero">
     <div>
       <div class="kicker">Pull request risk review</div>
@@ -235,6 +236,7 @@ def render_landing() -> str:
   <div class="land-foot">Sign in with GitHub → install the app on your repos → open a PR</div>
 </div>
 {charts.TIP_SCRIPT}
+{ui.THEME_SCRIPT}
 </body></html>"""
 
 

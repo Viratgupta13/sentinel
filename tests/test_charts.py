@@ -40,3 +40,15 @@ def test_radar_puts_riskier_prs_nearer_center():
     assert "3 repositories" in html and "1 high-risk PR near the center" in html
     assert 'class="blip c-crit hot"' in html and 'class="blip c-good"' in html
     assert "Nothing high-risk right now" in charts.radar([calm], repos=1)
+
+
+def test_theme_toggle_overrides_system_setting():
+    from sentinel.report import ui
+    from sentinel.report.dashboard import render_landing
+
+    css = ui.CSS
+    assert ':root[data-theme="dark"]' in css                     # forced dark
+    assert ':root:not([data-theme="light"])' in css              # system dark, unless forced light
+    page = ui.shell("t", "<p>x</p>")
+    assert page.index("sentinel-theme") < page.index("</head>")  # applied before first paint
+    assert 'id="theme-toggle"' in page and 'id="theme-toggle"' in render_landing()

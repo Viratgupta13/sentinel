@@ -18,6 +18,21 @@ FONTS = (
     '&display=swap">'
 )
 
+_DARK = """
+    color-scheme: dark;
+    --bg:#111110; --surface:#181816; --surface-2:#21211e; --hover:#1d1d1a;
+    --border:#2b2a26; --border-strong:#3c3b35;
+    --ink:#ecebe5; --ink-2:#aeaca2; --ink-3:#7d7b72;
+    --accent:#ecebe5; --accent-2:#ffffff; --accent-ink:#111110; --accent-soft:#2a2925;
+    --link:#7fb0ff;
+    --crit:#ff7a62; --crit-soft:#2e1712; --crit-line:#5a2a20;
+    --warn:#f0b04a; --warn-soft:#2b210f; --warn-line:#54401b;
+    --good:#5fcf8c; --good-soft:#132619; --good-line:#24472f;
+    --tick:#34332e;
+    --bar:#3987e5; --bar-track:#1b2a3d;
+    --shadow-lg:0 8px 24px rgba(0,0,0,.5);
+"""
+
 CSS = """
 :root {
   color-scheme: light;
@@ -34,22 +49,7 @@ CSS = """
   --shadow:none; --shadow-lg:0 8px 24px rgba(22,21,15,.12);
   --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --bg:#111110; --surface:#181816; --surface-2:#21211e; --hover:#1d1d1a;
-    --border:#2b2a26; --border-strong:#3c3b35;
-    --ink:#ecebe5; --ink-2:#aeaca2; --ink-3:#7d7b72;
-    --accent:#ecebe5; --accent-2:#ffffff; --accent-ink:#111110; --accent-soft:#2a2925;
-    --link:#7fb0ff;
-    --crit:#ff7a62; --crit-soft:#2e1712; --crit-line:#5a2a20;
-    --warn:#f0b04a; --warn-soft:#2b210f; --warn-line:#54401b;
-    --good:#5fcf8c; --good-soft:#132619; --good-line:#24472f;
-    --tick:#34332e;
-    --bar:#3987e5; --bar-track:#1b2a3d;
-    --shadow-lg:0 8px 24px rgba(0,0,0,.5);
-  }
-}
+/*DARK*/
 * { box-sizing:border-box; }
 html { -webkit-text-size-adjust:100%; }
 body { margin:0; background:var(--bg); color:var(--ink);
@@ -274,6 +274,59 @@ main > :nth-child(6) { animation-delay:.2s; } main > :nth-child(n+7) { animation
   .bar-label { width:110px; } .bar-val { width:110px; }
 }
 """
+CSS = CSS.replace(
+    "/*DARK*/",
+    f':root[data-theme="dark"] {{{_DARK}}}\n'
+    f'@media (prefers-color-scheme: dark) {{ :root:not([data-theme="light"]) {{{_DARK}}} }}',
+)
+CSS += """
+/* --- theme toggle --- */
+.theme-btn { display:grid; place-items:center; width:30px; height:30px; padding:0;
+             border:1px solid var(--border); border-radius:6px; background:var(--surface);
+             color:var(--ink-2); cursor:pointer; flex:none; }
+.theme-btn:hover { color:var(--ink); border-color:var(--border-strong); }
+.theme-btn svg { width:15px; height:15px; }
+.theme-btn .sun { display:none; }
+:root[data-theme="dark"] .theme-btn .sun { display:block; }
+:root[data-theme="dark"] .theme-btn .moon { display:none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-btn .sun { display:block; }
+  :root:not([data-theme="light"]) .theme-btn .moon { display:none; }
+}
+"""
+
+# Runs in <head> so a saved choice applies before first paint (no flash).
+THEME_HEAD = (
+    '<script>try{var t=localStorage.getItem("sentinel-theme");'
+    'if(t==="dark"||t==="light")document.documentElement.setAttribute("data-theme",t)}'
+    "catch(e){}</script>"
+)
+
+THEME_BUTTON = (
+    '<button class="theme-btn" id="theme-toggle" type="button" '
+    'aria-label="Switch dark or light mode" title="Dark / light mode">'
+    '<svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>'
+    '<svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    'stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" '
+    'r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2'
+    'M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>'
+)
+
+THEME_SCRIPT = """<script>
+(function () {
+  var b = document.getElementById("theme-toggle");
+  if (!b) return;
+  b.addEventListener("click", function () {
+    var root = document.documentElement, cur = root.getAttribute("data-theme");
+    if (!cur) cur = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    var next = cur === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("sentinel-theme", next); } catch (e) {}
+  });
+})();
+</script>"""
 
 LOGO = (
     '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="1.5" y="1.5" width="21" '
@@ -301,13 +354,17 @@ COUNT_SCRIPT = """<script>
     if (!m) return;
     var end = parseFloat(m[2]), dec = (m[2].split(".")[1] || "").length, t0 = null;
     if (!end) return;
+    var done = false;
     function step(t) {
+      if (done) return;
       t0 = t0 || t;
       var k = Math.min(1, (t - t0) / 700), e = 1 - Math.pow(1 - k, 3);
       el.textContent = m[1] + (end * e).toFixed(dec);
       if (k < 1) requestAnimationFrame(step);
     }
     requestAnimationFrame(step);
+    // Background tabs pause animation frames; never leave a number mid-count.
+    setTimeout(function () { done = true; el.textContent = m[1] + m[2]; }, 1200);
   });
 })();
 </script>"""
@@ -378,17 +435,19 @@ def shell(
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{esc(title)}</title>{FONTS}<style>{CSS}</style></head>
+<title>{esc(title)}</title>{THEME_HEAD}{FONTS}<style>{CSS}</style></head>
 <body>
 <nav class="topbar"><div class="wrap">
   <a class="brand" href="/dashboard">{LOGO}Sentinel</a>
   <div class="nav">{link("/dashboard", "Repositories", "repos")}
     {link("/overview", "Usage", "usage")}</div>
+  {THEME_BUTTON}
   {_who(user)}
 </div></nav>
 <main class="wrap">
 {body}
 </main>
 {COUNT_SCRIPT}
+{THEME_SCRIPT}
 {extra}
 </body></html>"""
