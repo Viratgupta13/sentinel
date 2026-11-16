@@ -153,4 +153,9 @@ docker build -t sentinel . && docker run sentinel version
 - [x] **Phase 7a - repo-centric UI**: home is your repo grid; each repo page
   shows live open PRs (risk-badged once reviewed), open issues, review
   history and decision-memory stats; costs move to `/overview`
-  (7b "ask the repo" RAG chat pending)
+- [x] **Phase 7b - ask the repo**: chat on every repo page. The repo is
+  snapshotted in one tarball request, chunked into a per-repo SQLite FTS5
+  index (porter stemming, path-word boosting, tests ranked below
+  implementation), merged with decision memory, and answered with numbered
+  citations that link to exact GitHub line ranges / source PRs. Answers in
+  the asker's language (Hinglish stays Hinglish)

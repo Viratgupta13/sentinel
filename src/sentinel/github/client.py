@@ -171,6 +171,25 @@ class GitHubClient:
             if "pull_request" not in i  # the issues API interleaves PRs
         ]
 
+    def download_tarball(self, owner: str, repo: str, max_bytes: int = 30_000_000) -> bytes:
+        """Default-branch snapshot as a .tar.gz - the whole repo in one request."""
+        with self._http.stream(
+            "GET", f"/repos/{owner}/{repo}/tarball", follow_redirects=True
+        ) as resp:
+            if resp.status_code >= 400:
+                resp.read()
+                self._raise_for_status(resp, f"tarball for {owner}/{repo}")
+            chunks: list[bytes] = []
+            size = 0
+            for chunk in resp.iter_bytes():
+                size += len(chunk)
+                if size > max_bytes:
+                    raise GitHubError(
+                        f"{owner}/{repo} snapshot exceeds {max_bytes // 1_000_000} MB"
+                    )
+                chunks.append(chunk)
+        return b"".join(chunks)
+
     def list_installation_repos(self, cap: int = 100) -> list[str]:
         """Repos this installation token can see (token must be an installation token)."""
         resp = self._http.get("/installation/repositories", params={"per_page": cap})

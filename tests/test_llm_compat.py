@@ -86,3 +86,40 @@ def test_openai_compat_truncation_raises(monkeypatch):
         client.structured(
             model="m", system="s", user_content="u", schema=_SCHEMA, output_model=_Out
         )
+
+
+def _rate_limited(retry_after: str) -> httpx.Response:
+    return httpx.Response(
+        429, headers={"retry-after": retry_after}, json={"error": "rate"},
+        request=httpx.Request("POST", "https://fake.example/v1/chat/completions"),
+    )
+
+
+def _call(client):
+    return client.structured(
+        model="m", system="s", user_content="u", schema=_SCHEMA, output_model=_Out,
+    )
+
+
+def test_rate_limit_short_wait_retries_once(monkeypatch):
+    import sentinel.llm as llm_mod
+
+    responses = [_rate_limited("2"), _fake_response('{"answer": "ok"}')]
+    slept = []
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: responses.pop(0))
+    monkeypatch.setattr(llm_mod.time, "sleep", slept.append)
+    assert _call(LLMClient(settings=_settings())).answer == "ok"
+    assert slept == [2.5]
+
+
+def test_rate_limit_long_wait_or_repeat_raises(monkeypatch):
+    import sentinel.llm as llm_mod
+
+    monkeypatch.setattr(llm_mod.time, "sleep", lambda s: None)
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _rate_limited("60"))
+    with pytest.raises(SentinelLLMError, match="Rate limited"):
+        _call(LLMClient(settings=_settings()))
+
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _rate_limited("1"))
+    with pytest.raises(SentinelLLMError, match="Rate limited"):  # only one wait
+        _call(LLMClient(settings=_settings()))

@@ -20,17 +20,23 @@ import hashlib
 import hmac
 import logging
 import secrets as pysecrets
+import threading
+import time
 
 from fastapi import BackgroundTasks, FastAPI, Request, Response
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from sentinel.ask.answer import answer_question
+from sentinel.ask.index import RepoIndex, index_db_path
 from sentinel.config import Settings, load_settings
 from sentinel.costs import CostHistory, costs_db_path, summarize
 from sentinel.github.client import GitHubClient
 from sentinel.hub import oauth, sessions
 from sentinel.hub.appauth import InstallationTokens, load_private_key
 from sentinel.hub.store import HubStore, hub_db_path
-from sentinel.memory.store import all_repo_stats
+from sentinel.llm import SentinelLLMError
+from sentinel.memory.store import MemoryStore, all_repo_stats, db_path_for
 from sentinel.models import ReviewReport
 from sentinel.pipeline import load_pr, open_memory_if_exists, review_pr
 from sentinel.report.dashboard import render_dashboard, render_landing
@@ -42,6 +48,9 @@ log = logging.getLogger("sentinel.server")
 # PR actions that trigger a (re-)review. "synchronize" = new commits pushed.
 REVIEW_ACTIONS = {"opened", "reopened", "synchronize", "ready_for_review"}
 SESSION_COOKIE = "sentinel_session"
+MAX_QUESTION_CHARS = 600
+INDEX_TTL_S = 6 * 3600  # re-snapshot the repo at most every 6h unless asked
+_index_locks: dict[str, threading.Lock] = {}
 
 
 def _signature_ok(secret: str, payload: bytes, header: str | None) -> bool:
@@ -192,27 +201,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return RedirectResponse("/")
         return HTMLResponse(_dashboard_data(user))
 
+    def _repo_access(user: dict | None, repo: str) -> tuple[bool, str | None]:
+        """(allowed, GitHub token to read it with). Hub mode: the user must have
+        the repo through an installation; reads use that installation's token."""
+        token = settings.github_token
+        if not settings.login_enabled:
+            return True, token
+        if repo not in _user_repos(user):
+            return False, None
+        store = _store()
+        try:
+            installation_id = store.installation_for_repo(repo)
+        finally:
+            store.close()
+        if inst_tokens and installation_id:
+            try:
+                token = inst_tokens.token(installation_id)
+            except Exception:
+                log.exception("installation token mint failed for %s", repo)
+        return True, token
+
     @app.get("/repo/{owner}/{name}", response_class=HTMLResponse)
     def repo_page(owner: str, name: str, request: Request) -> Response:
         user = _current_user(request)
         if settings.login_enabled and not user:
             return RedirectResponse("/")
         repo = f"{owner}/{name}"
-
-        token = settings.github_token
-        if settings.login_enabled:
-            if repo not in _user_repos(user):
-                return JSONResponse({"error": "unknown repo"}, status_code=404)
-            store = _store()
-            try:
-                installation_id = store.installation_for_repo(repo)
-            finally:
-                store.close()
-            if inst_tokens and installation_id:
-                try:
-                    token = inst_tokens.token(installation_id)
-                except Exception:
-                    log.exception("installation token mint failed for %s", repo)
+        allowed, token = _repo_access(user, repo)
+        if not allowed:
+            return JSONResponse({"error": "unknown repo"}, status_code=404)
 
         prs: list[dict] | None = None
         issues: list[dict] | None = None
@@ -242,6 +259,64 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return HTMLResponse(
             render_repo_page(repo, prs, issues, reviews, mem, user, fetch_error)
         )
+
+    @app.post("/api/repo/{owner}/{name}/ask")
+    async def ask_repo(owner: str, name: str, request: Request) -> Response:
+        user = _current_user(request)
+        if settings.login_enabled and not user:
+            return JSONResponse({"error": "not signed in"}, status_code=401)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = {}
+        question = str(body.get("question", "")).strip()
+        if not question:
+            return JSONResponse({"error": "empty question"}, status_code=400)
+        if len(question) > MAX_QUESTION_CHARS:
+            return JSONResponse({"error": "question too long"}, status_code=400)
+        # Index build + LLM call are blocking; keep them off the event loop.
+        return await run_in_threadpool(
+            _ask_blocking, user, f"{owner}/{name}", question, bool(body.get("reindex"))
+        )
+
+    def _ask_blocking(user: dict | None, repo: str, question: str, reindex: bool) -> Response:
+        allowed, token = _repo_access(user, repo)
+        if not allowed:
+            return JSONResponse({"error": "unknown repo"}, status_code=404)
+
+        lock = _index_locks.setdefault(repo, threading.Lock())
+        with lock:  # one build per repo at a time; concurrent askers wait for it
+            index = RepoIndex(index_db_path(settings.memory_home, repo))
+            try:
+                stale = time.time() - float(index.meta("built_ts") or 0) > INDEX_TTL_S
+                if reindex or not index.built or stale:
+                    owner, name = repo.split("/", 1)
+                    try:
+                        data = GitHubClient(token).download_tarball(owner, name)
+                        stats = index.build_from_tarball(data)
+                        log.info("indexed %s: %s", repo, stats)
+                    except Exception as e:
+                        log.exception("indexing %s failed", repo)
+                        if not index.built:
+                            return JSONResponse(
+                                {"error": f"could not index repo: {str(e)[:200]}"},
+                                status_code=502,
+                            )
+                memory = None
+                mem_path = db_path_for(settings.memory_home, repo)
+                if mem_path.exists():
+                    memory = MemoryStore(mem_path)
+                try:
+                    result = answer_question(repo, index, question, settings, memory)
+                except SentinelLLMError as e:
+                    return JSONResponse({"error": str(e)[:300]}, status_code=502)
+                finally:
+                    if memory is not None:
+                        memory.close()
+                result["indexed_files"] = int(index.meta("files") or 0)
+                return JSONResponse(result)
+            finally:
+                index.close()
 
     @app.get("/api/latest")
     def api_latest(request: Request) -> Response:

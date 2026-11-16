@@ -46,7 +46,129 @@ a.repo-card:hover { border-color:var(--ink-3); }
         padding:1px 9px; font-size:11.5px; flex:none; }
 .note { color:var(--ink-3); font-size:12.5px; margin:6px 0 0; }
 h1 a { color:inherit; text-decoration:none; }
+
+/* --- ask the repo --- */
+.ask { padding:14px 16px; }
+.ask form { display:flex; gap:8px; }
+.ask input { flex:1; min-width:0; font:inherit; font-size:14px; color:var(--ink);
+             background:var(--plane); border:1px solid var(--border);
+             border-radius:8px; padding:9px 12px; }
+.ask input:focus { outline:2px solid var(--bar); outline-offset:-1px; }
+.ask button { font:inherit; font-size:14px; font-weight:600; border:0;
+              border-radius:8px; padding:0 16px; cursor:pointer;
+              background:var(--ink); color:var(--plane); }
+.ask button:disabled { opacity:.5; cursor:default; }
+.ask .hint { color:var(--ink-3); font-size:12.5px; margin-top:8px; }
+.ask .hint a { color:var(--ink-2); cursor:pointer; text-decoration:underline dotted; }
+.qa { border-top:1px solid var(--grid); margin-top:14px; padding-top:12px; }
+.qa .q { font-weight:600; font-size:14px; }
+.qa .a { font-size:14px; line-height:1.6; margin-top:6px; white-space:pre-wrap; }
+.qa .a code { background:var(--plane); border:1px solid var(--border);
+              border-radius:4px; padding:0 4px; }
+.qa .a sup a { color:var(--bar); text-decoration:none; font-weight:600; }
+.qa .src { margin-top:8px; font-size:12.5px; color:var(--ink-3); }
+.qa .src a { color:var(--ink-2); font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+             text-decoration:none; }
+.qa .src a:hover { text-decoration:underline; }
+.qa .err { color:var(--crit); font-size:13.5px; margin-top:6px; }
+.thinking { color:var(--ink-3); font-size:13.5px; margin-top:6px; }
 """
+
+_ASK_SCRIPT = """<script>
+(function () {
+  var form = document.getElementById("ask-form");
+  var input = document.getElementById("ask-input");
+  var btn = form.querySelector("button");
+  var log = document.getElementById("ask-log");
+  var api = form.getAttribute("data-api");
+  var first = true;
+
+  function esc(s) {
+    return s.replace(/[&<>"']/g, function (c) {
+      return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c];
+    });
+  }
+  function render(text, sources) {
+    var byN = {};
+    (sources || []).forEach(function (s) { byN[s.n] = s; });
+    return esc(text)
+      .replace(/`([^`\\n]+)`/g, "<code>$1</code>")
+      .replace(/\\*\\*([^*\\n]+)\\*\\*/g, "<b>$1</b>")
+      .replace(/\\[(\\d+)\\]/g, function (m, n) {
+        var s = byN[n];
+        return s ? '<sup><a href="' + esc(s.url) + '" target="_blank" rel="noopener">[' +
+          n + "]</a></sup>" : m;
+      });
+  }
+  function ask(q, reindex) {
+    var box = document.createElement("div");
+    box.className = "qa";
+    box.innerHTML = '<div class="q">' + esc(q) + '</div><div class="thinking">' +
+      (first ? "Reading the repo (first question indexes it, ~10-30s)…" : "Thinking…") +
+      "</div>";
+    log.insertBefore(box, log.firstChild);
+    btn.disabled = true;
+    fetch(api, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question: q, reindex: !!reindex})
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      first = false;
+      if (d.error) {
+        box.innerHTML = '<div class="q">' + esc(q) + '</div><div class="err">' +
+          esc(d.error) + "</div>";
+        return;
+      }
+      var src = (d.sources || []).map(function (s) {
+        return '<a href="' + esc(s.url) + '" target="_blank" rel="noopener">[' + s.n +
+          "] " + esc(s.label) + "</a>";
+      }).join(" · ");
+      box.innerHTML = '<div class="q">' + esc(q) + '</div><div class="a">' +
+        render(d.answer, d.sources) + "</div>" +
+        (src ? '<div class="src">Sources: ' + src + "</div>" : "");
+    }).catch(function () {
+      box.innerHTML = '<div class="q">' + esc(q) + '</div><div class="err">' +
+        "Request failed - the server may be waking up; try again.</div>";
+    }).finally(function () { btn.disabled = false; input.focus(); });
+  }
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var q = input.value.trim();
+    if (!q || btn.disabled) return;
+    input.value = "";
+    ask(q, false);
+  });
+  document.querySelectorAll("[data-q]").forEach(function (a) {
+    a.addEventListener("click", function () { ask(a.getAttribute("data-q"), false); });
+  });
+  var re = document.getElementById("ask-reindex");
+  if (re) re.addEventListener("click", function () {
+    ask("Give me a short overview of this repository.", true);
+  });
+})();
+</script>"""
+
+_SUGGESTIONS = (
+    "What does this repo do and how is it structured?",
+    "How does data flow from a request to the database?",
+    "Which parts are riskiest to change, and why?",
+)
+
+
+def _ask_panel(repo: str) -> str:
+    chips = " · ".join(
+        f'<a data-q="{html.escape(q)}">{html.escape(q)}</a>' for q in _SUGGESTIONS
+    )
+    return f"""<h2>Ask this repo</h2>
+<div class="card ask">
+  <form id="ask-form" data-api="/api/repo/{html.escape(repo)}/ask">
+    <input id="ask-input" maxlength="600" autocomplete="off"
+           placeholder="Architecture, design decisions, where something lives…">
+    <button type="submit">Ask</button>
+  </form>
+  <div class="hint">Try: {chips} · <a id="ask-reindex">re-read latest code</a></div>
+  <div id="ask-log"></div>
+</div>"""
 
 
 def _page(title: str, body: str, user: dict | None, live_ts: float | None = None) -> str:
@@ -197,6 +319,7 @@ def render_repo_page(
 <div class="crumbs"><a href="/dashboard">&larr; All repositories</a> ·
   <a href="https://github.com/{html.escape(repo)}">view on GitHub</a></div>
 {error_note}
+{_ask_panel(repo)}
 <h2>Open pull requests</h2>
 {prs_block}
 <h2>Recent reviews</h2>
@@ -204,5 +327,7 @@ def render_repo_page(
 <h2>Open issues</h2>
 {issues_block}
 {mem_note}
+{_ASK_SCRIPT}
 """
-    return _page(repo, body, user, live_ts=reviews[0].ts if reviews else 0.0)
+    # No live auto-reload here: it would wipe an in-progress conversation.
+    return _page(repo, body, user)

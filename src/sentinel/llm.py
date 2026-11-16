@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
@@ -15,6 +16,9 @@ from sentinel.models import CostLine
 log = logging.getLogger("sentinel.llm")
 
 T = TypeVar("T", bound=BaseModel)
+
+# Longest a 429 is waited out (once) before surfacing the error.
+MAX_RATE_LIMIT_WAIT_S = 20.0
 
 
 class SentinelLLMError(RuntimeError):
@@ -243,20 +247,37 @@ class LLMClient:
         headers = {"Authorization": f"Bearer {s.openai_api_key}"}
 
         data: dict[str, Any] | None = None
-        for attempt in (1, 2):
+        format_fallback_used = rate_wait_used = False
+        for _attempt in range(3):
             try:
                 resp = httpx.post(url, json=payload, headers=headers, timeout=180)
             except httpx.HTTPError as e:
                 raise SentinelLLMError(f"Network error reaching {url}: {e}") from e
-            if resp.status_code == 400 and attempt == 1 and "response_format" in payload:
+            if (
+                resp.status_code == 400
+                and not format_fallback_used
+                and "response_format" in payload
+            ):
                 # Some free endpoints reject json_object mode; prompt-only JSON then.
                 payload.pop("response_format")
+                format_fallback_used = True
                 continue
             if resp.status_code == 401:
                 raise SentinelLLMError(
                     f"Authentication failed at {s.openai_base_url} - check "
                     "SENTINEL_OPENAI_API_KEY."
                 )
+            if resp.status_code == 429 and not rate_wait_used:
+                # Per-minute token windows reset fast; one short wait usually clears it.
+                try:
+                    wait = float(resp.headers.get("retry-after", "10"))
+                except ValueError:
+                    wait = 10.0
+                if wait <= MAX_RATE_LIMIT_WAIT_S:
+                    log.info("rate limited by %s; retrying in %.1fs", s.openai_base_url, wait)
+                    time.sleep(wait + 0.5)
+                    rate_wait_used = True
+                    continue
             if resp.status_code == 429:
                 raise SentinelLLMError(
                     f"Rate limited by {s.openai_base_url} (free tiers are tight); "
