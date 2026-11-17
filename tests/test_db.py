@@ -103,7 +103,6 @@ def test_hub_store_on_both_backends(target):
     store.close()
 
 
-@pytest.mark.skipif(not PG_URL, reason="SENTINEL_TEST_DATABASE_URL not set")
 def test_feedback_store_on_both_backends(target):
     store = FeedbackStore(target["costs"])
     try:
@@ -121,6 +120,7 @@ def test_feedback_store_on_both_backends(target):
         store.close()
 
 
+@pytest.mark.skipif(not PG_URL, reason="SENTINEL_TEST_DATABASE_URL not set")
 def test_postgres_reconnects_after_dropped_connection():
     conn = DB(PG_URL)
     conn.script("DROP TABLE IF EXISTS runs;")
