@@ -40,6 +40,8 @@ bug or contract break; "low" = worth a comment but not blocking.
 - confidence is YOUR estimate (0-1) that a maintainer would act on the finding.
 - suggestion, when present, must be concrete (code-level), not "consider improving X".
 - summary: one or two sentences on what the hunk does and the overall risk.
+- line: the new-file line number (the number before "|" in the diff) the finding \
+points at, or null if it is about the hunk as a whole or a removed line.
 - If a "Team memory" block is present, weigh those past decisions heavily: a hunk \
 that re-introduces something the team removed on purpose (constraint/incident) is \
 high severity, and the finding detail must cite the source PR number. Memories can \
@@ -60,8 +62,11 @@ _REVIEW_SCHEMA = {
                     "detail": {"type": "string"},
                     "suggestion": {"type": ["string", "null"]},
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                    "line": {"type": ["integer", "null"]},
                 },
-                "required": ["severity", "title", "detail", "suggestion", "confidence"],
+                "required": [
+                    "severity", "title", "detail", "suggestion", "confidence", "line",
+                ],
                 "additionalProperties": False,
             },
         },
@@ -75,6 +80,23 @@ class _ReviewOut(BaseModel):
     risk_score: int = Field(ge=0, le=10)
     summary: str = ""
     findings: list[Finding] = Field(default_factory=list)
+
+
+def numbered_hunk(hunk: Hunk) -> str:
+    """Hunk text with new-file line numbers ("  42| +code"), so the model can
+    point a finding at a line. Removed lines get a blank number column."""
+    lines = hunk.content.split("\n")
+    out = [lines[0]]  # @@ header
+    n = hunk.new_start
+    for line in lines[1:]:
+        if line.startswith("-"):
+            out.append(f"{'':>5}| {line}")
+        elif line.startswith("\\"):  # "\ No newline at end of file"
+            out.append(f"{'':>5}| {line}")
+        else:
+            out.append(f"{n:>5}| {line}")
+            n += 1
+    return "\n".join(out)
 
 
 def _pr_context_block(pr: PRInfo, file_paths: list[str]) -> list[dict]:
@@ -132,7 +154,7 @@ def run_deep_review(
             f"area: {sig.area.value} | triage risk: {verdict.risk}/10 "
             f"({verdict.reason or 'n/a'}) | +{hunk.added}/-{hunk.removed}"
             f"{memory_block}\n\n"
-            f"```diff\n{hunk.content[: settings.max_hunk_chars * 3]}\n```"
+            f"```diff\n{numbered_hunk(hunk)[: settings.max_hunk_chars * 3]}\n```"
         )
         try:
             out = llm.structured(

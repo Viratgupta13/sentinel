@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     webhook_secret: str | None = None
     # Post (and keep updated) a review comment on the PR after each webhook review.
     post_comments: bool = True
+    # Also post each finding as an inline comment on its line (rated with 👍/👎).
+    inline_comments: bool = True
 
     # --- Phase 6: hosted hub (GitHub App + "Sign in with GitHub") ---
     # Public URL this instance is served at (OAuth callback = <base_url>/auth/callback).

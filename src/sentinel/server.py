@@ -32,6 +32,7 @@ from sentinel.ask.index import RepoIndex, index_db_path
 from sentinel.config import Settings, load_settings
 from sentinel.costs import CostHistory, summarize
 from sentinel.db import location as db_location
+from sentinel.feedback import FeedbackStore, reaction_counts, summarize_feedback
 from sentinel.github.client import GitHubClient
 from sentinel.hub import oauth, sessions
 from sentinel.hub.appauth import InstallationTokens, load_private_key
@@ -44,6 +45,7 @@ from sentinel.pipeline import load_pr, open_memory_if_exists, review_pr
 from sentinel.report.dashboard import render_dashboard, render_landing
 from sentinel.report.pages import render_home, render_repo_page
 from sentinel.report.render import to_markdown
+from sentinel.review.inline import build_inline_comments, parse_marker
 
 log = logging.getLogger("sentinel.server")
 
@@ -51,6 +53,7 @@ log = logging.getLogger("sentinel.server")
 REVIEW_ACTIONS = {"opened", "reopened", "synchronize", "ready_for_review"}
 SESSION_COOKIE = "sentinel_session"
 MAX_QUESTION_CHARS = 600
+FEEDBACK_SYNC_S = 300  # re-read 👍/👎 reactions for a repo at most every 5 min
 INDEX_TTL_S = 6 * 3600  # re-snapshot the repo at most every 6h unless asked
 MEMORY_BUTTON_PRS = 30  # merged PRs mined per "Build memory" click (free-tier friendly)
 _index_locks: dict[str, threading.Lock] = {}
@@ -59,6 +62,7 @@ _index_locks: dict[str, threading.Lock] = {}
 # In-process only: a restart forgets running jobs, never their results.
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
+_feedback_synced: dict[str, float] = {}
 
 
 def _start_job(key: str, fn) -> bool:
@@ -109,15 +113,98 @@ def _run_review(pr_url: str, settings: Settings) -> ReviewReport | None:
         log.exception("recording run failed for %s", pr_url)
 
     if settings.post_comments:
+        gh = GitHubClient(settings.github_token)
+        inline_note = ""
+        if settings.inline_comments and pr.head_sha:
+            try:
+                posted = _post_inline(gh, pr, report, files, settings)
+                if posted:
+                    inline_note = (
+                        f"\n\n_{posted} finding{'s' if posted != 1 else ''} also posted "
+                        "inline on the changed lines. React 👍 or 👎 on them so "
+                        "Sentinel learns which findings are useful._\n"
+                    )
+            except Exception:
+                log.exception("posting inline comments failed for %s", pr_url)
         try:
-            gh = GitHubClient(settings.github_token)
             url = gh.upsert_pr_comment(
-                pr.owner, pr.repo, pr.number, to_markdown(report)
+                pr.owner, pr.repo, pr.number, to_markdown(report) + inline_note
             )
             log.info("review comment posted: %s", url)
         except Exception:
             log.exception("posting comment failed for %s", pr_url)
     return report
+
+
+def _sync_pr_feedback(
+    gh: GitHubClient, store: FeedbackStore, repo: str, number: int
+) -> set[str]:
+    """Read the PR's Sentinel inline comments from GitHub: store their 👍/👎
+    counts (re-adopting any the store lost) and return their finding keys."""
+    owner, name = repo.split("/", 1)
+    ours = []
+    for c in gh.list_pr_review_comments(owner, name, number):
+        key = parse_marker(c.get("body") or "")
+        if key and not c.get("in_reply_to_id"):
+            ours.append((key, c))
+    store.record_posted(repo, number, [
+        {"id": c["id"], "html_url": c.get("html_url"), "path": c.get("path", ""),
+         "line": c.get("line") or c.get("original_line"), "key": key,
+         "severity": _severity_from_body(c.get("body") or ""),
+         "title": _title_from_body(c.get("body") or "")}
+        for key, c in ours
+    ])
+    store.update_reactions(reaction_counts([c for _, c in ours]))
+    return {key for key, _ in ours}
+
+
+def _severity_from_body(body: str) -> str:
+    head = body.split("\n", 1)[0].upper()
+    return next((s.lower() for s in ("HIGH", "MEDIUM", "LOW") if f"**{s} ·" in head), "low")
+
+
+def _title_from_body(body: str) -> str:
+    head = body.split("\n", 1)[0]
+    return head.split("·", 1)[-1].strip(" *") if "·" in head else head[:120]
+
+
+def _post_inline(gh: GitHubClient, pr, report: ReviewReport, files, settings: Settings) -> int:
+    """Post findings not already on the PR as inline comments; returns how many."""
+    repo = f"{pr.owner}/{pr.repo}"
+    hunks = {h.hunk_id: h for f in files for h in f.hunks}
+    store = FeedbackStore(db_location(settings, "costs.db"))
+    try:
+        existing = _sync_pr_feedback(gh, store, repo, pr.number)
+        fresh = [c for c in build_inline_comments(report, hunks) if c["key"] not in existing]
+        if not fresh:
+            return 0
+        created = gh.post_inline_review(pr.owner, pr.repo, pr.number, pr.head_sha, fresh)
+        by_key = {c["key"]: c for c in fresh}
+        rows = []
+        for c in created:
+            key = parse_marker(c.get("body") or "")
+            if key in by_key:
+                rows.append({**by_key[key], "id": c["id"], "html_url": c.get("html_url"),
+                             "line": c.get("line") or by_key[key]["line"]})
+        store.record_posted(repo, pr.number, rows)
+        log.info("posted %d inline comments on %s#%d", len(rows), repo, pr.number)
+        return len(rows)
+    finally:
+        store.close()
+
+
+def _sync_repo_feedback(repo: str, settings: Settings) -> None:
+    """Refresh 👍/👎 counts for every PR Sentinel commented on. Never raises."""
+    try:
+        gh = GitHubClient(settings.github_token)
+        store = FeedbackStore(db_location(settings, "costs.db"))
+        try:
+            for number in store.prs_for_repo(repo):
+                _sync_pr_feedback(gh, store, repo, number)
+        finally:
+            store.close()
+    except Exception:
+        log.exception("feedback sync failed for %s", repo)
 
 
 def _build_memory_job(repo: str, settings: Settings, job: dict) -> None:
@@ -201,6 +288,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             store.close()
 
+    def _feedback_rows(repos: set[str]) -> list[dict]:
+        store = FeedbackStore(db_location(settings, "costs.db"))
+        try:
+            return store.rows(repos)
+        finally:
+            store.close()
+
     def _dashboard_data(user: dict | None) -> str:
         history = CostHistory(db_location(settings, "costs.db"))
         try:
@@ -275,7 +369,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         attention = [r for r in latest_per_pr.values() if r.max_risk >= 7]
         open_findings = [f for r in latest_per_pr.values() for f in (r.findings or [])]
         return HTMLResponse(
-            render_home(cards, user, stats, attention, activity=mine, open_findings=open_findings)
+            render_home(
+                cards, user, stats, attention, activity=mine, open_findings=open_findings,
+                feedback=summarize_feedback(_feedback_rows(set(repos))),
+            )
         )
 
     @app.get("/overview", response_class=HTMLResponse)
@@ -341,10 +438,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             history.close()
         reviews = [r for r in mine if r.command == "review"]
         mem = next((m for m in all_repo_stats(settings.memory_home) if m["repo"] == repo), None)
+        if time.time() - _feedback_synced.get(repo, 0) > FEEDBACK_SYNC_S:
+            _feedback_synced[repo] = time.time()
+            threading.Thread(
+                target=_sync_repo_feedback, args=(repo, _job_settings(token)),
+                name=f"feedback:{repo}", daemon=True,
+            ).start()
         return HTMLResponse(
             render_repo_page(
                 repo, prs, issues, reviews, mem, user, fetch_error,
                 latest_ts=mine[0].ts if mine else 0.0,
+                feedback=_feedback_rows({repo}),
             )
         )
 

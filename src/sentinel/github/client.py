@@ -80,6 +80,7 @@ class GitHubClient:
             author=(data.get("user") or {}).get("login", ""),
             base_ref=(data.get("base") or {}).get("ref", ""),
             head_ref=(data.get("head") or {}).get("ref", ""),
+            head_sha=(data.get("head") or {}).get("sha", ""),
             url=data.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{number}",
             additions=data.get("additions") or 0,
             deletions=data.get("deletions") or 0,
@@ -128,6 +129,67 @@ class GitHubClient:
         )
         self._raise_for_status(new, "posting review comment")
         return new.json().get("html_url", "")
+
+    def list_pr_review_comments(self, owner: str, repo: str, number: int) -> list[dict]:
+        """All inline review comments on a PR, raw (includes `reactions` counts)."""
+        out: list[dict] = []
+        for page in range(1, 6):
+            resp = self._http.get(
+                f"/repos/{owner}/{repo}/pulls/{number}/comments",
+                params={"per_page": 100, "page": page},
+            )
+            self._raise_for_status(resp, f"review comments for {owner}/{repo}#{number}")
+            batch = resp.json()
+            out.extend(batch)
+            if len(batch) < 100:
+                break
+        return out
+
+    def post_inline_review(
+        self, owner: str, repo: str, number: int, commit_sha: str,
+        comments: list[dict], body: str = "",
+    ) -> list[dict]:
+        """Post comments ({path, line, body}) as one COMMENT review.
+
+        If GitHub rejects the batch (422: a line outside the diff), falls back
+        to one comment at a time and skips the ones it still rejects. Returns
+        the created comments as {id, html_url, path, line, body}.
+        """
+        def created(c: dict) -> dict:
+            return {k: c.get(k) for k in ("id", "html_url", "path", "line", "body")}
+
+        payload = [
+            {"path": c["path"], "line": c["line"], "side": "RIGHT", "body": c["body"]}
+            for c in comments
+        ]
+        resp = self._http.post(
+            f"/repos/{owner}/{repo}/pulls/{number}/reviews",
+            json={"commit_id": commit_sha, "event": "COMMENT", "body": body,
+                  "comments": payload},
+        )
+        if resp.status_code != 422:
+            self._raise_for_status(resp, f"inline review for {owner}/{repo}#{number}")
+            review_id = resp.json()["id"]
+            listed = self._http.get(
+                f"/repos/{owner}/{repo}/pulls/{number}/reviews/{review_id}/comments",
+                params={"per_page": 100},
+            )
+            self._raise_for_status(listed, "listing inline review comments")
+            return [created(c) for c in listed.json()]
+
+        log.warning("batch inline review rejected (%s); posting one by one", resp.text[:200])
+        out: list[dict] = []
+        for c in payload:
+            one = self._http.post(
+                f"/repos/{owner}/{repo}/pulls/{number}/comments",
+                json={"commit_id": commit_sha, **c},
+            )
+            if one.status_code == 422:
+                log.warning("skipped inline comment on %s:%s", c["path"], c["line"])
+                continue
+            self._raise_for_status(one, "posting inline comment")
+            out.append(created(one.json()))
+        return out
 
     # --- Phase 7: repo-centric hub pages ---
 

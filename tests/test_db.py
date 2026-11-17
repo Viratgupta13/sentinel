@@ -11,6 +11,7 @@ from sentinel import db as db_mod
 from sentinel.config import Settings
 from sentinel.costs import CostHistory
 from sentinel.db import DB, location
+from sentinel.feedback import FeedbackStore
 from sentinel.hub import sessions
 from sentinel.hub.store import HubStore
 from sentinel.models import CostLine, Finding, HunkReview, PRInfo, ReviewReport
@@ -19,7 +20,7 @@ from sentinel.server import SESSION_COOKIE, create_app
 PG_URL = os.environ.get("SENTINEL_TEST_DATABASE_URL", "")
 TABLES = (
     "runs", "users", "installations", "user_installations", "installation_repos",
-    "memory_snapshots",
+    "memory_snapshots", "inline_comments",
 )
 
 
@@ -103,6 +104,23 @@ def test_hub_store_on_both_backends(target):
 
 
 @pytest.mark.skipif(not PG_URL, reason="SENTINEL_TEST_DATABASE_URL not set")
+def test_feedback_store_on_both_backends(target):
+    store = FeedbackStore(target["costs"])
+    try:
+        row = {"id": 4_000_000_001, "html_url": "u", "path": "a.py", "line": 3,
+               "key": "k1", "severity": "high", "title": "A"}
+        store.record_posted("acme/app", 7, [row])
+        store.record_posted("acme/app", 7, [row])  # ON CONFLICT DO NOTHING
+        store.update_reactions({4_000_000_001: (3, 1)})
+        rows = store.rows({"acme/app"})
+        assert [(r["comment_id"], r["up"], r["down"]) for r in rows] == [
+            (4_000_000_001, 3, 1)
+        ]
+        assert store.prs_for_repo("acme/app") == [7]
+    finally:
+        store.close()
+
+
 def test_postgres_reconnects_after_dropped_connection():
     conn = DB(PG_URL)
     conn.script("DROP TABLE IF EXISTS runs;")

@@ -67,6 +67,7 @@ class PRInfo(BaseModel):
     author: str = ""
     base_ref: str = ""
     head_ref: str = ""
+    head_sha: str = ""  # commit inline review comments are anchored to
     url: str = ""
     additions: int = 0
     deletions: int = 0
@@ -102,6 +103,7 @@ class Finding(BaseModel):
     detail: str
     suggestion: str | None = None
     confidence: float = Field(ge=0.0, le=1.0, default=0.5)
+    line: int | None = None  # new-file line the finding points at, when known
 
 
 class HunkReview(BaseModel):

@@ -12,10 +12,15 @@ import html
 import time
 
 from sentinel.costs import RunRow
+from sentinel.feedback import summarize_feedback
 from sentinel.report import charts, ui
 from sentinel.report.dashboard import _LIVE_SCRIPT, _review_card, _risk_badge
 
 _EXTRA_CSS = """
+.findings.fb { padding:10px 0 0; margin-top:8px; border-top:1px solid var(--border); }
+.findings.fb li { flex-wrap:wrap; gap:2px 8px; padding:5px 0; }
+.findings.fb li .ft { flex:1; min-width:0; color:var(--ink); }
+.findings.fb li .file { display:block; flex-basis:100%; margin-left:46px; }
 /* --- home --- */
 .home-head { align-items:center; gap:32px; }
 .home-head .kicker { font-family:var(--mono); font-size:11.5px; color:var(--ink-3);
@@ -357,6 +362,7 @@ def render_home(
     attention: list[RunRow] | None = None,
     activity: list[RunRow] | None = None,
     open_findings: list[dict] | None = None,
+    feedback: dict | None = None,
 ) -> str:
     """repo_cards: [{repo, reviews, last_ts, last_risk, decisions}];
     stats: {reviews, high, cost}; attention: recent high-risk reviews;
@@ -418,6 +424,12 @@ def render_home(
     bits = [f'<span class="g {"bad" if hot else "ok"}">{headline}</span>']
     if last_ts:
         bits.append(f"<span>last review {ui.ago(last_ts)}</span>")
+    if feedback and feedback.get("rated"):
+        bits.append(
+            f'<span title="share of rated inline findings with more 👍 than 👎">'
+            f'{feedback["useful_pct"]}% of rated findings useful '
+            f'({feedback["rated"]} rated)</span>'
+        )
     glance = f'<div class="glance">{"".join(bits)}</div>' if repo_cards else ""
 
     empty = (
@@ -448,6 +460,39 @@ def render_home(
     )
 
 
+def _feedback_card(rows: list[dict]) -> str:
+    """Sidebar card: how the team rated Sentinel's inline comments."""
+    if not rows:
+        return (
+            '<div class="card pad"><h3>Reviewer feedback</h3><p>Each finding is posted '
+            "inline on the line it is about. Your team's 👍 / 👎 reactions on those "
+            "comments are counted here.</p></div>"
+        )
+    fb = summarize_feedback(rows)
+    rate = f"{fb['useful_pct']}%" if fb["useful_pct"] is not None else "-"
+    facts = "".join(
+        f'<div class="kv"><span>{k}</span><b>{v}</b></div>'
+        for k, v in (
+            ("Inline findings", fb["posted"]),
+            ("Rated", fb["rated"]),
+            ("👍 useful", fb["useful"]),
+            ("👎 not useful", fb["not_useful"]),
+            ("Useful rate", rate),
+        )
+    )
+    recent = "".join(
+        f'<li><span class="sev {html.escape(r["severity"])}">'
+        f'{ui.SEV_LABEL.get(r["severity"], "?")}</span>'
+        f'<a class="ft" href="{html.escape(r["url"])}">{html.escape(r["title"])}</a>'
+        f'<span class="file">#{r["pr_number"]} · 👍 {r["up"]} · 👎 {r["down"]}</span></li>'
+        for r in rows[:4]
+    )
+    return (
+        f'<div class="card pad"><h3>Reviewer feedback</h3>{facts}'
+        f'<ul class="findings fb">{recent}</ul></div>'
+    )
+
+
 def render_repo_page(
     repo: str,
     prs: list[dict] | None,
@@ -457,6 +502,7 @@ def render_repo_page(
     user: dict | None,
     fetch_error: str | None = None,
     latest_ts: float = 0.0,
+    feedback: list[dict] | None = None,
 ) -> str:
     owner, name = _split(repo)
     latest_review: dict[int, RunRow] = {}
@@ -584,6 +630,7 @@ def render_repo_page(
   </div>
   <aside class="side">
     <div class="card pad"><h3>Overview</h3>{facts}</div>
+    {_feedback_card(feedback or [])}
     <div class="card pad"><h3>Decision memory</h3><p>{mem_text}</p>
       <div class="actions"><button class="btn sm" id="mem-build">{mem_label}</button>
       <span class="status" id="mem-status"></span></div></div>

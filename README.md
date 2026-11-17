@@ -151,7 +151,8 @@ secret - unsigned payloads are only accepted when no secret is configured
 (drafts skipped) the server reviews the PR in the background and upserts a
 single marker-tagged comment per PR (updated on each push, no comment spam;
 needs a `GITHUB_TOKEN` with write access; disable with
-`SENTINEL_POST_COMMENTS=false`).
+`SENTINEL_POST_COMMENTS=false`). Each finding is also posted inline on its
+line for 👍/👎 rating (`SENTINEL_INLINE_COMMENTS=false` turns that off).
 
 `GET /dashboard` serves the same unified dashboard as `sentinel costs --html`:
 recent reviews (risk + findings), decision-memory stats per repo, tokens by
@@ -204,7 +205,6 @@ docker build -t sentinel . && docker run sentinel version
 - [x] **Phase 6 - hosted hub**: GitHub App + "Sign in with GitHub" - install
   on any repo, reviews run on per-installation tokens, per-user live
   dashboard; one-click Render deploy (`render.yaml`, `docs/HOSTING.md`)
-  (inline per-line comments + 👍/👎 feedback loop pending)
 - [x] **Phase 7a - repo-centric UI**: home is your repo grid; each repo page
   shows live open PRs (risk-badged once reviewed), open issues, review
   history and decision-memory stats; costs move to `/overview`
@@ -225,3 +225,9 @@ docker build -t sentinel . && docker run sentinel version
   toggle, home radar of reviewed PRs, review-activity and open-findings
   charts, hunk funnel, code-scan landing page (all server-rendered SVG/CSS,
   reduced-motion aware)
+- [x] **Phase 8 - inline comments + feedback**: each finding is also posted
+  as a review comment on the exact line (the deep-review model gets
+  line-numbered hunks; off-diff lines fall back to the hunk's first added
+  line). Re-reviews never repeat a finding (stable per-finding markers), and
+  the team's 👍/👎 reactions are synced back into a feedback table shown on
+  the repo page and home ("% of rated findings useful")
