@@ -16,6 +16,10 @@ from sentinel.models import Decision, DecisionKind
 
 log = logging.getLogger("sentinel.memory")
 
+# Bump when extraction changes enough that PRs which yielded nothing before
+# deserve one more look. PRs that yielded decisions are never re-mined.
+EXTRACTOR_VERSION = 2
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS decisions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +58,12 @@ class MemoryStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(str(self.path))
         self._db.executescript(_SCHEMA)
+        try:  # added in extractor v2; older stores upgrade in place
+            self._db.execute(
+                "ALTER TABLE harvested_prs ADD COLUMN extractor INTEGER DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass  # column already exists
         try:
             self._db.executescript(_FTS_SCHEMA)
             self._fts = True
@@ -98,16 +108,20 @@ class MemoryStore:
 
     def mark_harvested(self, pr_number: int, decisions_count: int) -> None:
         self._db.execute(
-            "INSERT OR REPLACE INTO harvested_prs (pr_number, decisions_count) VALUES (?, ?)",
-            (pr_number, decisions_count),
+            "INSERT OR REPLACE INTO harvested_prs (pr_number, decisions_count, extractor)"
+            " VALUES (?, ?, ?)",
+            (pr_number, decisions_count, EXTRACTOR_VERSION),
         )
         self._db.commit()
 
     def is_harvested(self, pr_number: int) -> bool:
+        """True once a PR is done: it yielded decisions, or the current
+        extractor found none in it."""
         row = self._db.execute(
-            "SELECT 1 FROM harvested_prs WHERE pr_number = ?", (pr_number,)
+            "SELECT decisions_count, extractor FROM harvested_prs WHERE pr_number = ?",
+            (pr_number,),
         ).fetchone()
-        return row is not None
+        return row is not None and (row[0] > 0 or (row[1] or 0) >= EXTRACTOR_VERSION)
 
     # --- reads ---
 

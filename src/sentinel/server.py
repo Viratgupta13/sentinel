@@ -45,7 +45,7 @@ from sentinel.pipeline import load_pr, open_memory_if_exists, review_pr
 from sentinel.report.dashboard import render_dashboard, render_landing
 from sentinel.report.pages import render_home, render_repo_page
 from sentinel.report.render import to_markdown
-from sentinel.review.inline import build_inline_comments, parse_marker
+from sentinel.review.inline import build_inline_comments, parse_marker, similar_titles
 
 log = logging.getLogger("sentinel.server")
 
@@ -141,8 +141,8 @@ def _sync_pr_feedback(
 ) -> set:
     """Read the PR's Sentinel inline comments from GitHub: store their 👍/👎
     counts (re-adopting any the store lost) and return what they cover - each
-    finding key and each (path, line), since a re-review may word a finding
-    differently."""
+    finding key, each (path, line) and each ("title", title), since a re-review
+    may word a finding differently or point at another line of it."""
     owner, name = repo.split("/", 1)
     ours = []
     for c in gh.list_pr_review_comments(owner, name, number):
@@ -159,6 +159,7 @@ def _sync_pr_feedback(
     store.update_reactions(reaction_counts([c for _, c in ours]))
     covered: set = {key for key, _ in ours}
     covered |= {(c.get("path"), c.get("line") or c.get("original_line")) for _, c in ours}
+    covered |= {("title", _title_from_body(c.get("body") or "")) for _, c in ours}
     return covered
 
 
@@ -180,9 +181,12 @@ def _post_inline(gh: GitHubClient, pr, report: ReviewReport, files, settings: Se
     store = FeedbackStore(db_location(settings, "costs.db"))
     try:
         existing = _sync_pr_feedback(gh, store, repo, pr.number)
+        titles = [t for kind, t in (k for k in existing if isinstance(k, tuple))
+                  if kind == "title"]
         fresh = [
             c for c in build_inline_comments(report, hunks)
             if c["key"] not in existing and (c["path"], c["line"]) not in existing
+            and not any(similar_titles(c["title"], t) for t in titles)
         ]
         already = sum(1 for k in existing if isinstance(k, str))
         if not fresh:
@@ -248,6 +252,8 @@ def _build_memory_job(repo: str, settings: Settings, job: dict) -> None:
         f"{result['new_decisions']} new decisions from "
         f"{result['prs_processed']} PRs ({result['prs_seen']} merged PRs checked)"
     )
+    if result.get("failed"):
+        job["msg"] += f" · {result['failed']} failed, click again to retry"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

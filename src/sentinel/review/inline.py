@@ -52,6 +52,26 @@ def finding_key(path: str, title: str) -> str:
     return hashlib.sha1(f"{path}\0{norm}".encode()).hexdigest()[:12]
 
 
+_FILLER = {
+    "a", "an", "the", "of", "in", "on", "for", "to", "via", "by", "with", "and", "or",
+    "potential", "possible", "likely", "vulnerability", "issue", "risk", "bug",
+}
+
+
+def _title_words(title: str) -> set[str]:
+    words = re.findall(r"[a-z0-9]+", title.lower())
+    return {w for w in words if w not in _FILLER}
+
+
+def similar_titles(a: str, b: str) -> bool:
+    """Same finding in other words: most of the shorter title's words recur
+    ("SQL injection vulnerability" ~ "Potential SQL injection via search query")."""
+    wa, wb = _title_words(a), _title_words(b)
+    if not wa or not wb:
+        return False
+    return len(wa & wb) / min(len(wa), len(wb)) >= 0.6
+
+
 def parse_marker(body: str) -> str | None:
     m = MARKER_RE.search(body or "")
     return m[1] if m else None

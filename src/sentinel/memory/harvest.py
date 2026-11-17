@@ -40,6 +40,7 @@ def build_memory(
 
     new_prs = 0
     new_decisions = 0
+    failed = 0
     for raw in prs:
         number = raw["number"]
         if store.is_harvested(number):
@@ -52,11 +53,19 @@ def build_memory(
             url=raw.get("html_url") or f"https://github.com/{repo}/pull/{number}",
             merged_at=raw.get("merged_at") or "",
             files=gh.fetch_pr_files(owner, name, number),
-            comments=gh.fetch_review_comments(
-                owner, name, number, cap=settings.harvest_max_comments
-            ),
+            # Bot comments (Sentinel's own included) are not team decisions.
+            comments=[
+                c for c in gh.fetch_review_comments(
+                    owner, name, number, cap=settings.harvest_max_comments
+                )
+                if not c["author"].endswith("[bot]")
+            ],
         )
         decisions = extract_decisions(llm, settings, harvested)
+        if decisions is None:  # model call failed: leave unmarked, retry next build
+            failed += 1
+            notify(f"PR #{number}: extraction failed, will retry")
+            continue
         store.add_decisions(decisions)
         store.mark_harvested(number, len(decisions))
         new_prs += 1
@@ -68,5 +77,6 @@ def build_memory(
         "prs_seen": len(prs),
         "prs_processed": new_prs,
         "new_decisions": new_decisions,
+        "failed": failed,
         "cost_usd": round(llm.ledger.total_cost(), 4),
     }

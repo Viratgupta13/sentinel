@@ -100,3 +100,69 @@ def test_render_block_cites_pr(store):
 
 def test_render_empty_is_empty():
     assert render_memory_block([]) == ""
+
+
+def test_empty_harvest_from_older_extractor_is_retried(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "m.db"
+    old = sqlite3.connect(path)  # a store written before the extractor column
+    old.executescript(
+        "CREATE TABLE harvested_prs (pr_number INTEGER PRIMARY KEY,"
+        " decisions_count INTEGER DEFAULT 0);"
+        "INSERT INTO harvested_prs VALUES (1, 0), (2, 3);"
+    )
+    old.commit()
+    old.close()
+    s = MemoryStore(path)
+    try:
+        assert not s.is_harvested(1)  # empty under v1: one more look
+        assert s.is_harvested(2)      # yielded decisions: never re-mined
+        s.mark_harvested(1, 0)
+        assert s.is_harvested(1)      # empty under the current extractor: done
+    finally:
+        s.close()
+
+
+class _GH:
+    def __init__(self, *_a, **_k):
+        pass
+
+    def list_merged_prs(self, owner, name, limit):
+        return [{"number": 2, "title": "Use Decimal", "body": "Never float.",
+                 "html_url": "u", "merged_at": "2026-11-17"}]
+
+    def fetch_pr_files(self, owner, name, number):
+        return ["app.py"]
+
+    def fetch_review_comments(self, owner, name, number, cap):
+        return [{"author": "sentinel-review[bot]", "path": "app.py", "body": "bot note"},
+                {"author": "asha", "path": "app.py", "body": "keep it Decimal"}]
+
+
+def test_failed_extraction_is_retried_and_bots_are_ignored(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from sentinel.config import Settings
+    from sentinel.memory import harvest
+
+    monkeypatch.setattr(harvest, "GitHubClient", _GH)
+    seen = []
+    outcomes = iter([None, []])  # first call fails, second finds nothing
+
+    def fake_extract(llm, settings, pr):
+        seen.append([c["author"] for c in pr.comments])
+        return next(outcomes)
+
+    monkeypatch.setattr(harvest, "extract_decisions", fake_extract)
+    llm = SimpleNamespace(ledger=SimpleNamespace(total_cost=lambda: 0.0))
+    settings = Settings(memory_home=str(tmp_path), _env_file=None)
+    s = MemoryStore(tmp_path / "m.db")
+    try:
+        first = harvest.build_memory("acme/app", s, settings, llm)
+        assert first["failed"] == 1 and not s.is_harvested(2)
+        second = harvest.build_memory("acme/app", s, settings, llm)
+        assert second["failed"] == 0 and s.is_harvested(2)
+    finally:
+        s.close()
+    assert seen == [["asha"], ["asha"]]

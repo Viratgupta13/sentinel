@@ -108,8 +108,9 @@ def _render_pr(pr: HarvestedPR) -> str:
 
 def extract_decisions(
     llm: LLMClient, settings: Settings, pr: HarvestedPR
-) -> list[Decision]:
-    """Extract durable decisions from one harvested PR (possibly empty)."""
+) -> list[Decision] | None:
+    """Extract durable decisions from one harvested PR (possibly empty).
+    None means the model call failed, so the PR should be tried again later."""
     try:
         out = llm.structured(
             model=settings.extraction_model,
@@ -122,7 +123,7 @@ def extract_decisions(
         )
     except SentinelLLMError as e:
         log.warning("Extraction failed for PR #%d: %s", pr.number, e)
-        return []
+        return None
 
     decisions: list[Decision] = []
     for d in out.decisions:

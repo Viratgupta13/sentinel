@@ -11,6 +11,7 @@ from sentinel.review.inline import (
     finding_key,
     new_side_lines,
     parse_marker,
+    similar_titles,
 )
 from sentinel.review.reviewer import _REVIEW_SCHEMA, numbered_hunk
 from sentinel.server import _post_inline
@@ -171,6 +172,22 @@ def test_post_inline_skips_findings_already_on_the_pr(tmp_path):
     ))
     assert _post_inline(gh, reworded.pr, reworded, files, settings) == 2
     assert gh.posted == []
+
+    # ...nor the same finding pointed at another line in other words.
+    moved = _report(HunkReview(
+        hunk_id=HUNK.hunk_id, file_path=HUNK.file_path, risk_score=9,
+        findings=[_finding("Potential SQL injection via search query", line=13)],
+    ))
+    assert _post_inline(gh, moved.pr, moved, files, settings) == 2
+    assert gh.posted == []
+
+
+def test_similar_titles():
+    assert similar_titles("SQL injection vulnerability",
+                          "Potential SQL injection via search query")
+    assert not similar_titles("SQL injection vulnerability",
+                              "Missing authentication check")
+    assert not similar_titles("Leaks query", "Endpoint defined inside another view")
 
 
 def test_pages_show_feedback():
