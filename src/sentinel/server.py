@@ -138,9 +138,11 @@ def _run_review(pr_url: str, settings: Settings) -> ReviewReport | None:
 
 def _sync_pr_feedback(
     gh: GitHubClient, store: FeedbackStore, repo: str, number: int
-) -> set[str]:
+) -> set:
     """Read the PR's Sentinel inline comments from GitHub: store their 👍/👎
-    counts (re-adopting any the store lost) and return their finding keys."""
+    counts (re-adopting any the store lost) and return what they cover - each
+    finding key and each (path, line), since a re-review may word a finding
+    differently."""
     owner, name = repo.split("/", 1)
     ours = []
     for c in gh.list_pr_review_comments(owner, name, number):
@@ -155,7 +157,9 @@ def _sync_pr_feedback(
         for key, c in ours
     ])
     store.update_reactions(reaction_counts([c for _, c in ours]))
-    return {key for key, _ in ours}
+    covered: set = {key for key, _ in ours}
+    covered |= {(c.get("path"), c.get("line") or c.get("original_line")) for _, c in ours}
+    return covered
 
 
 def _severity_from_body(body: str) -> str:
@@ -175,7 +179,10 @@ def _post_inline(gh: GitHubClient, pr, report: ReviewReport, files, settings: Se
     store = FeedbackStore(db_location(settings, "costs.db"))
     try:
         existing = _sync_pr_feedback(gh, store, repo, pr.number)
-        fresh = [c for c in build_inline_comments(report, hunks) if c["key"] not in existing]
+        fresh = [
+            c for c in build_inline_comments(report, hunks)
+            if c["key"] not in existing and (c["path"], c["line"]) not in existing
+        ]
         if not fresh:
             return 0
         created = gh.post_inline_review(pr.owner, pr.repo, pr.number, pr.head_sha, fresh)

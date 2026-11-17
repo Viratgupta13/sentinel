@@ -137,7 +137,7 @@ def test_post_inline_skips_findings_already_on_the_pr(tmp_path):
     settings = Settings(memory_home=str(tmp_path), _env_file=None)
     report = _report(HunkReview(
         hunk_id=HUNK.hunk_id, file_path=HUNK.file_path, risk_score=9,
-        findings=[_finding("SQL injection", line=11), _finding("Leaks query", "medium")],
+        findings=[_finding("SQL injection", line=11), _finding("Leaks query", "medium", line=12)],
     ))
     files = [type("F", (), {"hunks": [HUNK]})()]
     old = comment_body(_finding("SQL injection"), finding_key("app/db.py", "SQL injection"))
@@ -161,6 +161,14 @@ def test_post_inline_skips_findings_already_on_the_pr(tmp_path):
                    [comment_body(_finding("Leaks query", "medium"),
                                  finding_key("app/db.py", "Leaks query"))]] + gh.existing
     assert _post_inline(gh, report.pr, report, files, settings) == 0  # nothing new
+
+    # A re-review that words the same finding differently, on a line Sentinel
+    # already commented on, is not posted again.
+    reworded = _report(HunkReview(
+        hunk_id=HUNK.hunk_id, file_path=HUNK.file_path, risk_score=9,
+        findings=[_finding("Unsafe string-built SQL", line=11)],
+    ))
+    assert _post_inline(gh, reworded.pr, reworded, files, settings) == 0
 
 
 def test_pages_show_feedback():
