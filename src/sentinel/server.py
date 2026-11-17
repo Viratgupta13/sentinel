@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import re
 import secrets as pysecrets
 import threading
 import time
@@ -65,6 +66,20 @@ _jobs_lock = threading.Lock()
 _feedback_synced: dict[str, float] = {}
 
 
+# Anything that looks like a credential: provider key prefixes, or any long
+# unbroken run of key-like characters. Provider errors echo request fields
+# back, so a misconfigured setting can carry a secret into the message.
+_SECRET_RE = re.compile(
+    r"(?:gsk_|sk-|sk_|ghp_|ghs_|gho_|github_pat_|xox[bp]-)[A-Za-z0-9_\-]+"
+    r"|[A-Za-z0-9_\-]{32,}"
+)
+
+
+def _public_error(text: str, limit: int = 200) -> str:
+    """Error text that is safe to show in the UI: secrets redacted, trimmed."""
+    return _SECRET_RE.sub("[redacted]", text)[:limit]
+
+
 def _start_job(key: str, fn) -> bool:
     """Run fn(job) in a daemon thread unless that job is already running."""
     with _jobs_lock:
@@ -80,7 +95,7 @@ def _start_job(key: str, fn) -> bool:
                 job["state"] = "done"
         except Exception as e:
             log.exception("job %s failed", key)
-            job.update(state="error", msg=str(e)[:200])
+            job.update(state="error", msg=_public_error(str(e)))
 
     threading.Thread(target=run, name=key, daemon=True).start()
     return True
@@ -254,7 +269,7 @@ def _build_memory_job(repo: str, settings: Settings, job: dict) -> None:
     )
     if result.get("failed"):
         job["msg"] += (
-            f" · {result['failed']} failed ({result.get('last_error', '')[:160]}),"
+            f" · {result['failed']} failed ({_public_error(result.get('last_error', ''), 160)}),"
             " click again to retry"
         )
 
@@ -437,7 +452,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             prs = gh.list_open_prs(owner, name)
         except Exception as e:
-            fetch_error = str(e)[:200]
+            fetch_error = _public_error(str(e))
             log.warning("live PR fetch failed for %s: %s", repo, e)
         try:
             issues = gh.list_open_issues(owner, name)
@@ -577,7 +592,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         log.exception("indexing %s failed", repo)
                         if not index.built:
                             return JSONResponse(
-                                {"error": f"could not index repo: {str(e)[:200]}"},
+                                {"error": f"could not index repo: {_public_error(str(e))}"},
                                 status_code=502,
                             )
                 memory = None
@@ -587,7 +602,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 try:
                     result = answer_question(repo, index, question, settings, memory)
                 except SentinelLLMError as e:
-                    return JSONResponse({"error": str(e)[:300]}, status_code=502)
+                    return JSONResponse({"error": _public_error(str(e), 300)}, status_code=502)
                 finally:
                     if memory is not None:
                         memory.close()

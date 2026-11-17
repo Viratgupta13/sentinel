@@ -107,3 +107,14 @@ def test_run_review_never_raises(monkeypatch, tmp_path):
 
     monkeypatch.setattr(server_mod, "load_pr", boom)
     assert server_mod._run_review("https://github.com/a/b/pull/1", settings) is None
+
+
+def test_public_error_redacts_keys():
+    from sentinel.server import _public_error
+
+    fake = "gsk_" + "a1B2" * 12
+    msg = _public_error(f'API error 404: The model `{fake}` does not exist')
+    assert "gsk_" not in msg and "a1B2" not in msg
+    assert msg == "API error 404: The model `[redacted]` does not exist"
+    assert _public_error("rate limited, retry in 20s") == "rate limited, retry in 20s"
+    assert "[redacted]" in _public_error("token " + "x" * 40)
