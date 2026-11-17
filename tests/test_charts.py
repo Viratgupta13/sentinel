@@ -52,3 +52,12 @@ def test_theme_toggle_overrides_system_setting():
     page = ui.shell("t", "<p>x</p>")
     assert page.index("sentinel-theme") < page.index("</head>")  # applied before first paint
     assert 'id="theme-toggle"' in page and 'id="theme-toggle"' in render_landing()
+
+
+def test_every_page_has_the_favicon():
+    from sentinel.report import ui
+    from sentinel.report.dashboard import render_landing
+
+    assert 'rel="icon"' in ui.FAVICON and "data:image/svg+xml" in ui.FAVICON
+    assert ui.FAVICON in ui.shell("t", "<p>x</p>")
+    assert ui.FAVICON in render_landing()

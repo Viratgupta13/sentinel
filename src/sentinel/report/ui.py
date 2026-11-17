@@ -335,6 +335,16 @@ LOGO = (
     'stroke-linejoin="round"/></svg>'
 )
 
+# Browser-tab icon: the LOGO mark with fixed light-theme colors (a tab has no
+# page tokens), percent-encoded into a data URI so no extra route is needed.
+FAVICON = (
+    '<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,'
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E"
+    "%3Crect x='1.5' y='1.5' width='21' height='21' rx='4' fill='%2316150f'/%3E"
+    "%3Cpath d='M6 15.5h2.4l2-6 3.2 9 2-5.5H18' fill='none' stroke='%23f5f4f0' "
+    "stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\">"
+)
+
 GITHUB_ICON = (
     '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 '
     "0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49"
@@ -435,7 +445,7 @@ def shell(
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{esc(title)}</title>{THEME_HEAD}{FONTS}<style>{CSS}</style></head>
+<title>{esc(title)}</title>{FAVICON}{THEME_HEAD}{FONTS}<style>{CSS}</style></head>
 <body>
 <nav class="topbar"><div class="wrap">
   <a class="brand" href="/dashboard">{LOGO}Sentinel</a>

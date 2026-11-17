@@ -197,7 +197,8 @@ def render_landing() -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sentinel - PR risk review for your GitHub repos</title>{ui.THEME_HEAD}{ui.FONTS}
+<title>Sentinel - PR risk review for your GitHub repos</title>{ui.FAVICON}
+{ui.THEME_HEAD}{ui.FONTS}
 <style>{ui.CSS}{charts.CSS}{_LANDING_CSS}</style></head>
 <body>
 <div class="land">
