@@ -148,11 +148,16 @@ def test_failed_extraction_is_retried_and_bots_are_ignored(tmp_path, monkeypatch
 
     monkeypatch.setattr(harvest, "GitHubClient", _GH)
     seen = []
-    outcomes = iter([None, []])  # first call fails, second finds nothing
+    from sentinel.llm import SentinelLLMError
+
+    outcomes = iter([SentinelLLMError("rate limited"), []])  # fail, then nothing
 
     def fake_extract(llm, settings, pr):
         seen.append([c["author"] for c in pr.comments])
-        return next(outcomes)
+        out = next(outcomes)
+        if isinstance(out, Exception):
+            raise out
+        return out
 
     monkeypatch.setattr(harvest, "extract_decisions", fake_extract)
     llm = SimpleNamespace(ledger=SimpleNamespace(total_cost=lambda: 0.0))
@@ -161,6 +166,7 @@ def test_failed_extraction_is_retried_and_bots_are_ignored(tmp_path, monkeypatch
     try:
         first = harvest.build_memory("acme/app", s, settings, llm)
         assert first["failed"] == 1 and not s.is_harvested(2)
+        assert first["last_error"] == "rate limited"
         second = harvest.build_memory("acme/app", s, settings, llm)
         assert second["failed"] == 0 and s.is_harvested(2)
     finally:

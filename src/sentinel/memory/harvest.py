@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from sentinel.config import Settings
 from sentinel.github.client import GitHubClient
-from sentinel.llm import LLMClient
+from sentinel.llm import LLMClient, SentinelLLMError
 from sentinel.memory.extract import HarvestedPR, extract_decisions
 from sentinel.memory.store import MemoryStore
 
@@ -41,6 +41,7 @@ def build_memory(
     new_prs = 0
     new_decisions = 0
     failed = 0
+    last_error = ""
     for raw in prs:
         number = raw["number"]
         if store.is_harvested(number):
@@ -61,9 +62,11 @@ def build_memory(
                 if not c["author"].endswith("[bot]")
             ],
         )
-        decisions = extract_decisions(llm, settings, harvested)
-        if decisions is None:  # model call failed: leave unmarked, retry next build
+        try:
+            decisions = extract_decisions(llm, settings, harvested)
+        except SentinelLLMError as e:  # leave unmarked: the next build retries it
             failed += 1
+            last_error = str(e)
             notify(f"PR #{number}: extraction failed, will retry")
             continue
         store.add_decisions(decisions)
@@ -78,5 +81,6 @@ def build_memory(
         "prs_processed": new_prs,
         "new_decisions": new_decisions,
         "failed": failed,
+        "last_error": last_error,
         "cost_usd": round(llm.ledger.total_cost(), 4),
     }

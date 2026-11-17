@@ -253,7 +253,10 @@ def _build_memory_job(repo: str, settings: Settings, job: dict) -> None:
         f"{result['prs_processed']} PRs ({result['prs_seen']} merged PRs checked)"
     )
     if result.get("failed"):
-        job["msg"] += f" · {result['failed']} failed, click again to retry"
+        job["msg"] += (
+            f" · {result['failed']} failed ({result.get('last_error', '')[:160]}),"
+            " click again to retry"
+        )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
