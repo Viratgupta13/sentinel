@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     # Hunks per triage batch call.
     triage_batch_size: int = 16
 
+    # Lines of the new file shown around each deep-reviewed hunk (0 = hunk only).
+    # Without them the model guesses about code it cannot see.
+    review_context_lines: int = 40
+    # Second "skeptic" pass that tries to refute each finding before it ships.
+    # Off by default: on the Gemini eval it changed no decisions and cost ~11%
+    # more tokens (evals/results/home-assistant__core.gemini.md).
+    verify_findings: bool = False
+
     # Safety rails for very large PRs.
     max_diff_bytes: int = 400_000
     max_hunk_chars: int = 4_000
@@ -66,6 +74,8 @@ class Settings(BaseSettings):
     post_comments: bool = True
     # Also post each finding as an inline comment on its line (rated with 👍/👎).
     inline_comments: bool = True
+    # Only findings at least this confident (and not low severity) go inline.
+    inline_min_confidence: float = 0.7
 
     # --- Phase 6: hosted hub (GitHub App + "Sign in with GitHub") ---
     # Public URL this instance is served at (OAuth callback = <base_url>/auth/callback).

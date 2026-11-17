@@ -92,11 +92,14 @@ def comment_body(finding, key: str) -> str:
 
 
 def build_inline_comments(
-    report: ReviewReport, hunks_by_id: dict[str, Hunk], cap: int = MAX_INLINE_COMMENTS
+    report: ReviewReport, hunks_by_id: dict[str, Hunk], cap: int = MAX_INLINE_COMMENTS,
+    min_confidence: float = 0.0,
 ) -> list[dict]:
-    """[{key, path, line, body, severity, title}] - most severe first, one per key."""
+    """[{key, path, line, body, severity, title}] - most severe first, one per key.
+    Low-severity and low-confidence findings stay in the summary comment only."""
     candidates = [
         (review, f) for review in report.reviews for f in review.findings
+        if f.severity != "low" and f.confidence >= min_confidence
     ]
     candidates.sort(key=lambda rf: (_SEVERITY_ORDER[rf[1].severity], -rf[1].confidence))
     out: list[dict] = []

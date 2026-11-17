@@ -3,8 +3,10 @@
 Configs:
     static  - parser + static signals only (zero LLM calls)
     triage  - + cheap-model triage scores (no deep review)
-    full    - + deep review of escalated hunks
-    memory  - full + decision memory (pass an explicitly built, time-cutoff DB)
+    full    - + deep review of escalated hunks (hunk only, no verification: the
+              original pipeline, kept as the baseline)
+    verified - full + surrounding-code context + skeptic verification pass
+    memory  - verified + decision memory (pass an explicitly built, time-cutoff DB)
 
 One JSONL result row per (PR, config). The runner is resumable: rows already
 present in the output file are skipped, so rate-limited free tiers can finish
@@ -29,7 +31,7 @@ from sentinel.pipeline import load_pr, review_pr
 
 log = logging.getLogger("sentinel.evals")
 
-CONFIGS = ("static", "triage", "full", "memory")
+CONFIGS = ("static", "triage", "full", "verified", "memory")
 
 
 class EvalResult(BaseModel):
@@ -41,6 +43,9 @@ class EvalResult(BaseModel):
     config: str
     max_risk: int  # max triage/static hunk risk (0-10)
     max_review_risk: int  # max deep-review risk_score, 0 if no deep review
+    # max triage risk over hunks that were NOT deep-reviewed (the review's own
+    # risk replaces triage for hunks it saw); -1 in rows recorded before this field
+    max_unreviewed_risk: int = -1
     n_findings: int
     n_high: int
     llm_triaged: int  # hunks actually scored by the LLM (vs static fallback)
@@ -56,6 +61,12 @@ def run_config(
     settings: Settings,
     memory_db: Path | None = None,
 ) -> EvalResult:
+    if config in ("static", "triage", "full"):
+        settings = settings.model_copy(
+            update={"review_context_lines": 0, "verify_findings": False}
+        )
+    else:  # verified / memory measure the full pipeline, skeptic included
+        settings = settings.model_copy(update={"verify_findings": True})
     pr, files = load_pr(pr_row.url, settings)
     store = None
     try:
@@ -77,11 +88,18 @@ def run_config(
     finally:
         if store is not None:
             store.close()
+    failed = [r.hunk_id for r in report.reviews if r.failed]
+    if failed:  # a rate-limited call would skew the ablation: retry on resume
+        raise RuntimeError(f"model call failed for {', '.join(failed)}")
     return _to_result(pr_row, config, report)
 
 
 def _to_result(pr_row: EvalPR, config: str, report: ReviewReport) -> EvalResult:
     hunk_risks = [v.risk for v in report.verdicts if v.source != "skip"]
+    reviewed = {r.hunk_id for r in report.reviews}
+    unreviewed_risks = [
+        v.risk for v in report.verdicts if v.source != "skip" and v.hunk_id not in reviewed
+    ]
     review_risks = [r.risk_score for r in report.reviews]
     findings = [f for r in report.reviews for f in r.findings]
     return EvalResult(
@@ -91,6 +109,7 @@ def _to_result(pr_row: EvalPR, config: str, report: ReviewReport) -> EvalResult:
         config=config,
         max_risk=max(hunk_risks, default=0),
         max_review_risk=max(review_risks, default=0),
+        max_unreviewed_risk=max(unreviewed_risks, default=0),
         n_findings=len(findings),
         n_high=sum(1 for f in findings if f.severity == "high"),
         llm_triaged=sum(1 for v in report.verdicts if v.source == "llm"),

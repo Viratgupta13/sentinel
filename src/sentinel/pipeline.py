@@ -76,6 +76,25 @@ def open_memory_if_exists(pr: PRInfo, settings: Settings):
     return MemoryStore(path)
 
 
+def _file_fetcher(pr: PRInfo, settings: Settings):
+    """path -> file text at the PR head (cached), or None when unavailable."""
+    if pr.owner == "local" or not pr.head_sha or settings.review_context_lines <= 0:
+        return None
+    gh = GitHubClient(settings.github_token)
+    cache: dict[str, str | None] = {}
+
+    def fetch(path: str) -> str | None:
+        if path not in cache:
+            try:
+                cache[path] = gh.fetch_file_text(pr.owner, pr.repo, path, pr.head_sha)
+            except Exception as e:  # context is a nice-to-have, never fatal
+                log.warning("could not fetch %s for context: %s", path, e)
+                cache[path] = None
+        return cache[path]
+
+    return fetch
+
+
 def review_pr(
     pr: PRInfo,
     files: list[FileDiff],
@@ -124,7 +143,7 @@ def review_pr(
 
         reviews = run_deep_review(
             llm, settings, pr, hunks_by_id, signals, verdicts, file_paths,
-            retriever=retriever,
+            retriever=retriever, file_text=_file_fetcher(pr, settings),
         )
 
     return _report(pr, files, settings, all_hunks, signals, verdicts, reviews, ledger)

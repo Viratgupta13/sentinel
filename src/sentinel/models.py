@@ -112,6 +112,7 @@ class HunkReview(BaseModel):
     risk_score: int = Field(ge=0, le=10)
     summary: str = ""
     findings: list[Finding] = Field(default_factory=list)
+    failed: bool = False  # the deep-review or verification call errored
 
 
 class DecisionKind(StrEnum):

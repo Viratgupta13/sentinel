@@ -39,7 +39,7 @@ def compute_metrics(results: list[EvalResult], hi_threshold: int = 7) -> list[Co
         by_config[r.config].append(r)
 
     out: list[ConfigMetrics] = []
-    for config in ("static", "triage", "full", "memory"):
+    for config in ("static", "triage", "full", "verified", "memory"):
         rows = by_config.get(config)
         if not rows:
             continue

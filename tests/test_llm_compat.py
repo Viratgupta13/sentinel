@@ -116,10 +116,17 @@ def test_rate_limit_long_wait_or_repeat_raises(monkeypatch):
     import sentinel.llm as llm_mod
 
     monkeypatch.setattr(llm_mod.time, "sleep", lambda s: None)
-    monkeypatch.setattr(httpx, "post", lambda *a, **k: _rate_limited("60"))
-    with pytest.raises(SentinelLLMError, match="Rate limited"):
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _rate_limited("90"))
+    with pytest.raises(SentinelLLMError, match="Rate limited"):  # too long to wait
         _call(LLMClient(settings=_settings()))
 
-    monkeypatch.setattr(httpx, "post", lambda *a, **k: _rate_limited("1"))
-    with pytest.raises(SentinelLLMError, match="Rate limited"):  # only one wait
+    calls = []
+
+    def always_limited(*a, **k):
+        calls.append(1)
+        return _rate_limited("45")  # a per-minute window: worth waiting out
+
+    monkeypatch.setattr(httpx, "post", always_limited)
+    with pytest.raises(SentinelLLMError, match="Rate limited"):
         _call(LLMClient(settings=_settings()))
+    assert len(calls) == llm_mod.MAX_RATE_LIMIT_RETRIES + 1

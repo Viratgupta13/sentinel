@@ -395,7 +395,7 @@ def eval_run(
     dataset: Path = typer.Argument(..., help="Dataset JSONL from `sentinel eval collect`"),
     configs: str = typer.Option(
         "static,triage,full", "--configs",
-        help="Comma list of: static,triage,full,memory",
+        help="Comma list of: static,triage,full,verified,memory",
     ),
     limit: int = typer.Option(None, "--limit", min=1, help="Max PRs from the dataset"),
     out: Path = typer.Option(None, "--out", help="Results JSONL (appended; resumable)"),

@@ -100,6 +100,22 @@ class GitHubClient:
         self._raise_for_status(resp, f"diff for {owner}/{repo}#{number}")
         return resp.text
 
+    def fetch_file_text(
+        self, owner: str, repo: str, path: str, ref: str, max_bytes: int = 400_000
+    ) -> str | None:
+        """A file's text at a commit, or None (missing, binary or too large)."""
+        resp = self._http.get(
+            f"/repos/{owner}/{repo}/contents/{path}",
+            params={"ref": ref},
+            headers={"Accept": "application/vnd.github.raw"},
+        )
+        if resp.status_code != 200 or len(resp.content) > max_bytes:
+            return None
+        try:
+            return resp.content.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
     # --- Phase 5: webhook server ---
 
     def upsert_pr_comment(
