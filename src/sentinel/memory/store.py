@@ -158,6 +158,12 @@ class MemoryStore:
             ).fetchall()
         return [self._row_to_decision(row) for row in rows]
 
+    def all(self, limit: int = 500) -> list[Decision]:
+        rows = self._db.execute(
+            "SELECT * FROM decisions ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [self._row_to_decision(row) for row in rows]
+
     @staticmethod
     def _row_to_decision(row: tuple) -> Decision:
         return Decision(

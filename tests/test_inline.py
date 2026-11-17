@@ -70,10 +70,10 @@ def test_build_inline_comments_orders_dedupes_and_skips():
     )
     hunks = {HUNK.hunk_id: HUNK, REMOVED_ONLY.hunk_id: REMOVED_ONLY}
     out = build_inline_comments(report, hunks)
-    assert [c["title"] for c in out] == ["SQL injection", "Minor naming"]
+    assert [c["title"] for c in out] == ["SQL injection"]  # low stays in the summary
     assert out[0]["line"] == 12 and out[0]["path"] == "app/db.py"
     assert parse_marker(out[0]["body"]) == finding_key("app/db.py", "SQL injection")
-    assert build_inline_comments(report, hunks, cap=1)[0]["severity"] == "high"
+    assert build_inline_comments(report, hunks, min_confidence=0.95) == []
 
 
 def test_comment_body_asks_for_reaction():
@@ -204,3 +204,25 @@ def test_pages_show_feedback():
     home = render_home(cards, None, feedback=summarize_feedback(rows))
     assert "100% of rated findings useful (1 rated)" in home
     assert "rated findings useful" not in render_home(cards, None)
+
+
+def test_post_inline_skips_kinds_the_team_voted_down(tmp_path):
+    settings = Settings(memory_home=str(tmp_path), _env_file=None)
+    store = FeedbackStore(tmp_path / "costs.db")
+    try:
+        store.record_posted("acme/app", 3, [
+            {"id": 50, "html_url": "u", "path": "x.py", "line": 1, "key": "kk",
+             "severity": "high", "title": "Endpoint defined inside another view function"},
+        ])
+        store.update_reactions({50: (0, 2)})
+    finally:
+        store.close()
+    report = _report(HunkReview(
+        hunk_id=HUNK.hunk_id, file_path=HUNK.file_path, risk_score=9, findings=[
+            _finding("Route defined inside another view function", line=11),
+            _finding("SQL injection", line=12),
+        ],
+    ))
+    gh = FakeGH([])
+    _post_inline(gh, report.pr, report, [type("F", (), {"hunks": [HUNK]})()], settings)
+    assert [c["title"] for c in gh.posted] == ["SQL injection"]

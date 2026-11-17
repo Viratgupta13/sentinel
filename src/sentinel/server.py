@@ -35,6 +35,7 @@ from sentinel.costs import CostHistory, summarize
 from sentinel.db import location as db_location
 from sentinel.feedback import FeedbackStore, reaction_counts, summarize_feedback
 from sentinel.github.client import GitHubClient
+from sentinel.graph import blast_radius, build_graph
 from sentinel.hub import oauth, sessions
 from sentinel.hub.appauth import InstallationTokens, load_private_key
 from sentinel.hub.store import HubStore
@@ -44,6 +45,7 @@ from sentinel.memory.store import MemoryStore, all_repo_stats, db_path_for
 from sentinel.models import ReviewReport
 from sentinel.pipeline import load_pr, open_memory_if_exists, review_pr
 from sentinel.report.dashboard import render_dashboard, render_landing
+from sentinel.report.graph_page import render_graph_page
 from sentinel.report.pages import render_home, render_repo_page
 from sentinel.report.render import to_markdown
 from sentinel.review.inline import build_inline_comments, parse_marker, similar_titles
@@ -198,10 +200,14 @@ def _post_inline(gh: GitHubClient, pr, report: ReviewReport, files, settings: Se
         existing = _sync_pr_feedback(gh, store, repo, pr.number)
         titles = [t for kind, t in (k for k in existing if isinstance(k, tuple))
                   if kind == "title"]
+        # Kinds of finding this repo's team voted down: don't post them again.
+        disliked = [r["title"] for r in store.rows({repo}) if r["down"] > r["up"]]
         fresh = [
-            c for c in build_inline_comments(report, hunks)
+            c for c in build_inline_comments(
+                report, hunks, min_confidence=settings.inline_min_confidence
+            )
             if c["key"] not in existing and (c["path"], c["line"]) not in existing
-            and not any(similar_titles(c["title"], t) for t in titles)
+            and not any(similar_titles(c["title"], t) for t in titles + disliked)
         ]
         already = sum(1 for k in existing if isinstance(k, str))
         if not fresh:
@@ -572,6 +578,96 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _ask_blocking, user, f"{owner}/{name}", question, bool(body.get("reindex"))
         )
 
+    def _refresh_index(index: RepoIndex, repo: str, token: str | None, force: bool) -> str:
+        """(Re)build the repo snapshot when missing, stale or forced. Returns an
+        error to show, or "" (a failed refresh of an existing index is not one)."""
+        stale = time.time() - float(index.meta("built_ts") or 0) > INDEX_TTL_S
+        if not (force or not index.built or stale):
+            return ""
+        owner, name = repo.split("/", 1)
+        try:
+            data = GitHubClient(token).download_tarball(owner, name)
+            log.info("indexed %s: %s", repo, index.build_from_tarball(data))
+        except Exception as e:
+            log.exception("indexing %s failed", repo)
+            if not index.built:
+                return f"could not index repo: {_public_error(str(e))}"
+        return ""
+
+    @app.get("/repo/{owner}/{name}/graph", response_class=HTMLResponse)
+    def repo_graph_page(owner: str, name: str, request: Request) -> Response:
+        user = _current_user(request)
+        if settings.login_enabled and not user:
+            return RedirectResponse("/")
+        repo = f"{owner}/{name}"
+        allowed, token = _repo_access(user, repo)
+        if not allowed:
+            return JSONResponse({"error": "unknown repo"}, status_code=404)
+        try:
+            prs = GitHubClient(token).list_open_prs(owner, name)
+        except Exception as e:
+            log.warning("open PRs for the risk map failed for %s: %s", repo, e)
+            prs = None
+        return HTMLResponse(render_graph_page(repo, user, prs))
+
+    @app.get("/api/repo/{owner}/{name}/graph")
+    async def repo_graph(owner: str, name: str, request: Request, pr: int = 0) -> Response:
+        user = _current_user(request)
+        if settings.login_enabled and not user:
+            return JSONResponse({"error": "not signed in"}, status_code=401)
+        return await run_in_threadpool(_graph_blocking, user, f"{owner}/{name}", pr)
+
+    def _graph_blocking(user: dict | None, repo: str, pr: int) -> Response:
+        allowed, token = _repo_access(user, repo)
+        if not allowed:
+            return JSONResponse({"error": "unknown repo"}, status_code=404)
+        with _index_locks.setdefault(repo, threading.Lock()):
+            index = RepoIndex(index_db_path(settings.memory_home, repo))
+            try:
+                error = _refresh_index(index, repo, token, force=False)
+                if error:
+                    return JSONResponse({"error": error}, status_code=502)
+                texts, ref = index.file_texts(), index.meta("ref")
+            finally:
+                index.close()
+
+        history = CostHistory(db_location(settings, "costs.db"))
+        try:
+            reviews = [r for r in history.rows(limit=2000)
+                       if r.repo == repo and r.command == "review"]
+        finally:
+            history.close()
+        decisions = []
+        mem_path = db_path_for(settings.memory_home, repo)
+        if mem_path.exists():
+            store = MemoryStore(mem_path)
+            try:
+                decisions = store.all()
+            finally:
+                store.close()
+
+        graph = build_graph(texts, reviews, decisions)
+        graph["ref"] = ref
+        if pr > 0:
+            owner, name = repo.split("/", 1)
+            try:
+                changed = set(GitHubClient(token).fetch_pr_files(owner, name, pr))
+            except Exception as e:
+                return JSONResponse(
+                    {"error": f"could not read PR #{pr}: {_public_error(str(e))}"},
+                    status_code=502,
+                )
+            mapped = {n["id"] for n in graph["nodes"]}
+            edges = {tuple(e) for e in graph["edges"]}
+            hops = blast_radius(changed & mapped, edges)
+            graph["pr"] = {
+                "number": pr,
+                "changed": sorted(changed & mapped),
+                "unmapped": sorted(changed - mapped),
+                "impacted": hops,
+            }
+        return JSONResponse(graph)
+
     def _ask_blocking(user: dict | None, repo: str, question: str, reindex: bool) -> Response:
         allowed, token = _repo_access(user, repo)
         if not allowed:
@@ -581,20 +677,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with lock:  # one build per repo at a time; concurrent askers wait for it
             index = RepoIndex(index_db_path(settings.memory_home, repo))
             try:
-                stale = time.time() - float(index.meta("built_ts") or 0) > INDEX_TTL_S
-                if reindex or not index.built or stale:
-                    owner, name = repo.split("/", 1)
-                    try:
-                        data = GitHubClient(token).download_tarball(owner, name)
-                        stats = index.build_from_tarball(data)
-                        log.info("indexed %s: %s", repo, stats)
-                    except Exception as e:
-                        log.exception("indexing %s failed", repo)
-                        if not index.built:
-                            return JSONResponse(
-                                {"error": f"could not index repo: {_public_error(str(e))}"},
-                                status_code=502,
-                            )
+                error = _refresh_index(index, repo, token, reindex)
+                if error:
+                    return JSONResponse({"error": error}, status_code=502)
                 memory = None
                 mem_path = db_path_for(settings.memory_home, repo)
                 if mem_path.exists():

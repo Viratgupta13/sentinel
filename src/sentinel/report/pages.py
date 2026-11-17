@@ -616,6 +616,7 @@ def render_repo_page(
 <div class="page-head"><div class="grow">
   <h1><span class="owner">{html.escape(owner)} / </span>{html.escape(name)}</h1>
   <p class="lede">Automatic risk review is on for every pull request.</p></div>
+  <a class="btn" href="/repo/{html.escape(repo)}/graph">Risk map</a>
   <a class="btn" href="https://github.com/{html.escape(repo)}">{ui.GITHUB_ICON}View on GitHub</a>
 </div>
 {error_note}

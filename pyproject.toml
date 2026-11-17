@@ -52,6 +52,8 @@ select = ["E", "F", "I", "W", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # Typer's idiomatic API puts Option()/Argument() in parameter defaults.
 "src/sentinel/cli.py" = ["B008"]
+# The risk map page embeds its browser script; JS lines follow JS width, not PEP 8.
+"src/sentinel/report/graph_page.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

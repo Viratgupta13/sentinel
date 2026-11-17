@@ -144,6 +144,16 @@ class RepoIndex:
     def tree(self) -> list[str]:
         return [p for p in self.meta("tree").split("\n") if p]
 
+    def file_texts(self) -> dict[str, str]:
+        """path -> text, reassembled from the indexed chunks (all-blank chunks
+        were never stored, so line numbers can drift; fine for import parsing)."""
+        out: dict[str, list[str]] = {}
+        for path, text in self._db.execute(
+            "SELECT path, text FROM chunks ORDER BY path, start_line"
+        ):
+            out.setdefault(path, []).append(text)
+        return {path: "\n".join(parts) for path, parts in out.items()}
+
     # --- build ---
 
     def build_from_tarball(self, data: bytes) -> dict:
