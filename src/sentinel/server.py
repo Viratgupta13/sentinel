@@ -120,7 +120,7 @@ def _run_review(pr_url: str, settings: Settings) -> ReviewReport | None:
                 posted = _post_inline(gh, pr, report, files, settings)
                 if posted:
                     inline_note = (
-                        f"\n\n_{posted} finding{'s' if posted != 1 else ''} also posted "
+                        f"\n\n_{posted} finding{'s' if posted != 1 else ''} posted "
                         "inline on the changed lines. React 👍 or 👎 on them so "
                         "Sentinel learns which findings are useful._\n"
                     )
@@ -173,7 +173,8 @@ def _title_from_body(body: str) -> str:
 
 
 def _post_inline(gh: GitHubClient, pr, report: ReviewReport, files, settings: Settings) -> int:
-    """Post findings not already on the PR as inline comments; returns how many."""
+    """Post findings not already on the PR as inline comments; returns how many
+    Sentinel inline comments the PR has afterwards."""
     repo = f"{pr.owner}/{pr.repo}"
     hunks = {h.hunk_id: h for f in files for h in f.hunks}
     store = FeedbackStore(db_location(settings, "costs.db"))
@@ -183,8 +184,9 @@ def _post_inline(gh: GitHubClient, pr, report: ReviewReport, files, settings: Se
             c for c in build_inline_comments(report, hunks)
             if c["key"] not in existing and (c["path"], c["line"]) not in existing
         ]
+        already = sum(1 for k in existing if isinstance(k, str))
         if not fresh:
-            return 0
+            return already
         created = gh.post_inline_review(pr.owner, pr.repo, pr.number, pr.head_sha, fresh)
         by_key = {c["key"]: c for c in fresh}
         rows = []
@@ -195,7 +197,7 @@ def _post_inline(gh: GitHubClient, pr, report: ReviewReport, files, settings: Se
                              "line": c.get("line") or by_key[key]["line"]})
         store.record_posted(repo, pr.number, rows)
         log.info("posted %d inline comments on %s#%d", len(rows), repo, pr.number)
-        return len(rows)
+        return already + len(rows)
     finally:
         store.close()
 

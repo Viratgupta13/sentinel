@@ -144,7 +144,7 @@ def test_post_inline_skips_findings_already_on_the_pr(tmp_path):
     gh = FakeGH([{"id": 9, "body": old, "path": "app/db.py", "line": 11,
                   "reactions": {"+1": 1, "-1": 0}}])
 
-    assert _post_inline(gh, report.pr, report, files, settings) == 1
+    assert _post_inline(gh, report.pr, report, files, settings) == 2  # 1 kept + 1 new
     assert [c["title"] for c in gh.posted] == ["Leaks query"]
 
     store = FeedbackStore(tmp_path / "costs.db")
@@ -160,7 +160,8 @@ def test_post_inline_skips_findings_already_on_the_pr(tmp_path):
     gh.existing = [{"id": 100, "body": gh_body, "reactions": {}} for gh_body in
                    [comment_body(_finding("Leaks query", "medium"),
                                  finding_key("app/db.py", "Leaks query"))]] + gh.existing
-    assert _post_inline(gh, report.pr, report, files, settings) == 0  # nothing new
+    assert _post_inline(gh, report.pr, report, files, settings) == 2
+    assert gh.posted == []  # nothing new
 
     # A re-review that words the same finding differently, on a line Sentinel
     # already commented on, is not posted again.
@@ -168,7 +169,8 @@ def test_post_inline_skips_findings_already_on_the_pr(tmp_path):
         hunk_id=HUNK.hunk_id, file_path=HUNK.file_path, risk_score=9,
         findings=[_finding("Unsafe string-built SQL", line=11)],
     ))
-    assert _post_inline(gh, reworded.pr, reworded, files, settings) == 0
+    assert _post_inline(gh, reworded.pr, reworded, files, settings) == 2
+    assert gh.posted == []
 
 
 def test_pages_show_feedback():
